@@ -77,16 +77,30 @@ def check_gradients(label, *modules):
     (to_pixels, to_pixels_first_frame), unused patch embeddings
     (to_patch_emb_first_frame), and cross-attention norms (context_norm)
     that are never executed in our encoder-only forward pass.
-    Only a zero grad_norm on a parameter that DID participate is flagged.
+
+    null_kv is a learnable "null attention token" prepended to K/V in each
+    attention layer. The pre-trained model never attends to it, so the
+    gradient is structurally zero — expected and harmless.
+
+    Only a zero grad_norm on a parameter that DID participate and is NOT
+    one of these structural zeros is flagged as a failure.
     """
+    # Parameters that are in the forward path but structurally receive zero
+    # gradient in the encoder-only, self-attention setting.
+    _STRUCTURAL_ZERO_PARAMS = {"null_kv"}
+
     print(f"\n  Gradient check — {label}")
     any_active = False
     all_active_ok = True
     for mod in modules:
         mod_name = type(mod).__name__
         for name, p in mod.named_parameters():
+            leaf = name.split(".")[-1]
             if p.grad is None:
                 print(f"    {mod_name}.{name}: grad=None  (not in forward path, expected)")
+            elif leaf in _STRUCTURAL_ZERO_PARAMS:
+                gnorm = p.grad.norm().item()
+                print(f"    {mod_name}.{name}: grad_norm={gnorm:.6f}  (structural zero, expected)")
             else:
                 any_active = True
                 gnorm = p.grad.norm().item()
