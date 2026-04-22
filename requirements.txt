@@ -1,14 +1,15 @@
-# Core (already in the cluster venv)
-torch>=2.10.0
-torchvision>=0.25.0
+# Install with:
+#   pip install torch==2.10.0+cu128 torchvision==0.25.0+cu128 \
+#       --index-url https://download.pytorch.org/whl/cu128
+#   pip install -r requirements.txt
 
-# NIfTI I/O
+# CT volume I/O
 nibabel>=4.0
 
 # Data handling
 pandas>=1.5
 numpy>=1.23
-openpyxl>=3.0     # needed for pd.read_excel on .xlsx
+openpyxl>=3.0
 
 # Progress bars
 tqdm>=4.64
@@ -16,10 +17,14 @@ tqdm>=4.64
 # Evaluation
 scikit-learn>=1.2
 
-# CT-CLIP internal deps (add via sys.path, not pip)
-# einops
-# vector_quantize_pytorch
-# transformers  (BertTokenizer etc.)
-
 # Config
 pyyaml>=6.0
+
+# CT-CLIP / CTViT dependencies (added to sys.path, not pip-installed as packages)
+einops>=0.7
+vector_quantize_pytorch>=1.0
+transformers>=4.30
+beartype>=0.15
+ema_pytorch>=0.4
+accelerate>=0.20
+opencv-python-headless>=4.5   # pulled in by transformer_maskgit trainer imports

@@ -11,7 +11,7 @@ for _p in [
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from transformer_maskgit import CTViT  # noqa: E402
+from transformer_maskgit.ctvit import CTViT  # noqa: E402
 
 EMBED_DIM = 512
 
