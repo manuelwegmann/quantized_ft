@@ -1,0 +1,45 @@
+mode: ssql
+use_aux_loss: true    # L_ssql + L_fp  (SSQL paper Table 8, row i)
+
+backbone:
+  checkpoint: /home/nlr950/Dir/CT-CLIP/checkpoints/CT-CLIP_v2.pt
+  use_pre_vq: false
+
+data:
+  data_folder:  /home/nlr950/Dir/CT-CLIP/data/merlin_data
+  reports_file: /home/nlr950/Dir/CT-CLIP/data/reports_final.xlsx
+  meta_file:    /home/nlr950/Dir/CT-CLIP/data/metadata.csv
+
+augmentation:
+  crop_ratio:       0.85
+  flip_p:           0.5
+  intensity_jitter: true
+  gaussian_noise:   true
+  noise_std:        0.01
+
+quantization:
+  w_bits_min: 2
+  w_bits_max: 8
+  a_bits_min: 4
+  a_bits_max: 8
+
+training:
+  batch_size:   2
+  lr:           0.05
+  momentum:     0.9
+  weight_decay: 1.0e-4
+  epochs:       100
+  num_workers:  4
+  save_every:   10
+
+projector:
+  in_dim:     512
+  hidden_dim: 2048
+  out_dim:    2048
+
+predictor:
+  in_dim:     2048
+  hidden_dim: 512
+  out_dim:    2048
+
+output_dir: /home/nlr950/Dir/quantized_ft/runs/pretrain_ssql

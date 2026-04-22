@@ -1,0 +1,27 @@
+# Path to a pretrain checkpoint (checkpoint_final.pt from run_pretrain.py).
+# Override on the command line: --pretrain_checkpoint /path/to/checkpoint_final.pt
+pretrain_checkpoint: /home/nlr950/Dir/quantized_ft/runs/pretrain_fp/checkpoint_final.pt
+
+backbone:
+  checkpoint: /home/nlr950/Dir/CT-CLIP/checkpoints/CT-CLIP_v2.pt  # used only if no pretrain_checkpoint
+  use_pre_vq: false
+
+data:
+  data_folder:  /home/nlr950/Dir/CT-CLIP/data/merlin_data
+  reports_file: /home/nlr950/Dir/CT-CLIP/data/reports_final.xlsx
+  labels_file:  /home/nlr950/Dir/CT-CLIP/data/zero_shot_findings_disease_cls.csv
+  meta_file:    /home/nlr950/Dir/CT-CLIP/data/metadata.csv
+  split_seed:   42
+
+training:
+  batch_size:   4
+  lr:           1.0e-3
+  weight_decay: 0.0
+  epochs:       50
+  num_workers:  4
+
+freeze_backbone: true   # true = linear probe; false = full fine-tuning
+
+n_classes: 30
+
+output_dir: /home/nlr950/Dir/quantized_ft/runs/downstream_fp

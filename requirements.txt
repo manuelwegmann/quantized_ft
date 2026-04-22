@@ -1,0 +1,25 @@
+# Core (already in the cluster venv)
+torch>=2.10.0
+torchvision>=0.25.0
+
+# NIfTI I/O
+nibabel>=4.0
+
+# Data handling
+pandas>=1.5
+numpy>=1.23
+openpyxl>=3.0     # needed for pd.read_excel on .xlsx
+
+# Progress bars
+tqdm>=4.64
+
+# Evaluation
+scikit-learn>=1.2
+
+# CT-CLIP internal deps (add via sys.path, not pip)
+# einops
+# vector_quantize_pytorch
+# transformers  (BertTokenizer etc.)
+
+# Config
+pyyaml>=6.0
