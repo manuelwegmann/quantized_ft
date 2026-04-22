@@ -98,10 +98,13 @@ def run_fp_step(backbone, projector, predictor, x1, x2):
     )
     optimizer.zero_grad()
 
-    z1 = projector(backbone(x1))
-    z2 = projector(backbone(x2))
-    p1 = predictor(z1)
-    p2 = predictor(z2)
+    # Concatenate both views into a single batch of 2 so BatchNorm1d
+    # has enough samples to compute statistics during training.
+    x_batch = torch.cat([x1, x2], dim=0)           # (2, 1, D, H, W)
+    z_batch = projector(backbone(x_batch))           # (2, 2048)
+    z1, z2  = z_batch.chunk(2, dim=0)               # each (1, 2048)
+    p_batch = predictor(z_batch)                     # (2, 2048)
+    p1, p2  = p_batch.chunk(2, dim=0)
 
     loss = negative_cosine_similarity(p1, z2.detach()) + \
            negative_cosine_similarity(p2, z1.detach())
@@ -133,11 +136,14 @@ def run_ssql_step(backbone, projector, predictor, x1, x2):
     )
     optimizer.zero_grad()
 
+    # Both views batched together so BatchNorm1d sees 2 samples throughout
+    x_batch = torch.cat([x1, x2], dim=0)           # (2, 1, D, H, W)
+
     # FP pass (targets)
-    z1_fp = projector(backbone(x1))
-    z2_fp = projector(backbone(x2))
-    p1_fp = predictor(z1_fp)
-    p2_fp = predictor(z2_fp)
+    z_fp_batch = projector(backbone(x_batch))       # (2, 2048)
+    z1_fp, z2_fp = z_fp_batch.chunk(2, dim=0)
+    p_fp_batch = predictor(z_fp_batch)
+    p1_fp, p2_fp = p_fp_batch.chunk(2, dim=0)
 
     # Snapshot a weight before quantized pass to verify restoration
     test_param = next(backbone.parameters())
@@ -147,10 +153,10 @@ def run_ssql_step(backbone, projector, predictor, x1, x2):
     w_bits, a_bits = sample_bits()
     print(f"\n  Sampled bits: w_bits={w_bits}, a_bits={a_bits}")
     with quantized_forward([backbone, projector], w_bits, a_bits):
-        z1_q = projector(backbone(x1))
-        z2_q = projector(backbone(x2))
-    p1_q = predictor(z1_q)
-    p2_q = predictor(z2_q)
+        z_q_batch = projector(backbone(x_batch))    # (2, 2048)
+    z1_q, z2_q = z_q_batch.chunk(2, dim=0)
+    p_q_batch = predictor(z_q_batch)
+    p1_q, p2_q = p_q_batch.chunk(2, dim=0)
 
     # Verify weight restoration
     weight_after = test_param.data
