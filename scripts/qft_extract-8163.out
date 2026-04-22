@@ -1,0 +1,42 @@
+=== qft_extract  job=8163  node=hendrixgpu03fl.unicph.domain ===
+N_SCANS=5
+Wed Apr 22 13:45:21 CEST 2026
+Python 3.11.13
+torch 2.10.0+cu128 | cuda True
+
+Device : cuda
+GPU    : NVIDIA A40
+Mode   : post-VQ (default)
+
+Loading backbone...
+[backbone] loaded 157 tensors from /home/nlr950/Dir/CT-CLIP/checkpoints/CT-CLIP_v2.pt
+[backbone] missing  (1): ['vq._codebook.embed_avg']
+Traceback (most recent call last):
+  File "/home/nlr950/Dir/quantized_ft/scripts/extract_features.py", line 146, in <module>
+    main()
+  File "/home/nlr950/Dir/quantized_ft/scripts/extract_features.py", line 89, in main
+    backbone.to(device)
+  File "/home/nlr950/Dir/quantized_ft/venv/lib64/python3.11/site-packages/torch/nn/modules/module.py", line 1381, in to
+    return self._apply(convert)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/nlr950/Dir/quantized_ft/venv/lib64/python3.11/site-packages/torch/nn/modules/module.py", line 933, in _apply
+    module._apply(fn)
+  File "/home/nlr950/Dir/quantized_ft/venv/lib64/python3.11/site-packages/torch/nn/modules/module.py", line 933, in _apply
+    module._apply(fn)
+  File "/home/nlr950/Dir/quantized_ft/venv/lib64/python3.11/site-packages/torch/nn/modules/module.py", line 933, in _apply
+    module._apply(fn)
+  [Previous line repeated 2 more times]
+  File "/home/nlr950/Dir/quantized_ft/venv/lib64/python3.11/site-packages/torch/nn/modules/module.py", line 964, in _apply
+    param_applied = fn(param)
+                    ^^^^^^^^^
+  File "/home/nlr950/Dir/quantized_ft/venv/lib64/python3.11/site-packages/torch/nn/modules/module.py", line 1367, in convert
+    return t.to(
+           ^^^^^
+torch.AcceleratorError: CUDA error: uncorrectable ECC error encountered
+Search for `cudaErrorECCUncorrectable' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+=== done ===
+Wed Apr 22 13:45:46 CEST 2026
