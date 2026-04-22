@@ -2,8 +2,7 @@
 #SBATCH --job-name=qft_pretrain
 #SBATCH --output=%x-%j.out
 #SBATCH --error=%x-%j.out
-#SBATCH --gres=gpu:1
-#SBATCH --exclude=hendrixgpu03fl,hendrixgpu18fl
+#SBATCH --gres=gpu:a100:1
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
