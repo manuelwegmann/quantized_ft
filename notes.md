@@ -14,6 +14,11 @@ Merlin abdominal CT dataset:
 Downstream evaluation: linear probe (frozen backbone), 30-label multi-label
 classification, macro-mean AUROC.
 
+
+---
+## To-Do
+- Check CT preprocessing pipeline in CT-CLIP (and Merlin).
+
 ---
 
 ## Completed tests
@@ -54,28 +59,24 @@ classification, macro-mean AUROC.
   view-alignment pretraining
 - **Result: augmentations working as intended, ready to proceed**
 
+### Single training step — FP and SSQL
+- Script: `scripts/test_single_step.py`, job `qft_step-8315`
+- FP: loss = −0.006 (finite ✓), all active backbone/projector/predictor params
+  have non-zero gradients ✓
+- SSQL: w_bits=3, a_bits=4; L_ssql = 0.025, L_fp = 0.020, total = 0.046
+  (finite ✓); weight restoration confirmed True ✓; gradients non-zero ✓
+- Dead parameters in both modes are benign and confirmed expected:
+  - `grad=None`: decoder layers (to_pixels*), unused patch emb
+    (to_patch_emb_first_frame), cross-attention norm (context_norm)
+  - `grad=0` (structural): `null_kv` in every attention layer — pre-trained
+    model never attends to null tokens; does not affect learning
+- **Result: FP PASSED ✓, SSQL PASSED ✓ — training loop and STE validated**
+
 ---
 
 ## Intermediate tests remaining (in order)
 
-### 1. Single FP training step  ← next
-
-### 2. Single FP training step
-- Load 1 scan, produce 2 augmented views, run one full forward + backward
-  pass (FP SimSiam): backbone → projector → predictor → loss → backward
-- Check: loss is finite, gradients non-None and non-zero on backbone,
-  projector, and predictor parameters
-- Validates the full FP training loop before committing to long runs
-
-### 3. Single SSQL training step
-- Same as above with `quantized_forward` context manager active
-- Extra checks:
-  - Loss finite under fake-quantized weights
-  - Gradients flow back through STE (non-zero on backbone params)
-  - Backbone weights are exactly restored after context exits
-- Validates SSQL training loop and STE implementation
-
-### 4. Downstream pipeline smoke test
+### Downstream pipeline smoke test  ← next
 - Load a small labelled subset, verify 70/15/15 split is consistent
 - Run frozen backbone → LinearProbe → BCE loss → backward
 - Confirm AUROC computation runs to completion
@@ -104,6 +105,8 @@ classification, macro-mean AUROC.
    ```
 
 4. Compare macro-mean AUROC between FP and SSQL runs
+
+5. Examine if quick SSQL protocol after pretraining can act as regularizing model for subsequent quantization.
 
 ---
 
