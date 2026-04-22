@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Runs / outputs
+runs/
+
+# Data (symlinks or local copies — not tracked)
+data/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Slurm logs
+slurm-*.out
+
+# Env
+.env
+venv/
