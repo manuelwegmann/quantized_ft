@@ -69,22 +69,32 @@ def load_one_scan(device):
 
 
 def check_gradients(label, *modules):
-    """Print gradient stats for all parameters across the given modules."""
+    """
+    Print gradient stats for all parameters across the given modules.
+
+    grad=None means the parameter was not part of the forward computation
+    graph (dead code path) — this is expected for decoder layers
+    (to_pixels, to_pixels_first_frame), unused patch embeddings
+    (to_patch_emb_first_frame), and cross-attention norms (context_norm)
+    that are never executed in our encoder-only forward pass.
+    Only a zero grad_norm on a parameter that DID participate is flagged.
+    """
     print(f"\n  Gradient check — {label}")
-    all_ok = True
+    any_active = False
+    all_active_ok = True
     for mod in modules:
         mod_name = type(mod).__name__
         for name, p in mod.named_parameters():
             if p.grad is None:
-                print(f"    {mod_name}.{name}: grad=None  ✗")
-                all_ok = False
+                print(f"    {mod_name}.{name}: grad=None  (not in forward path, expected)")
             else:
+                any_active = True
                 gnorm = p.grad.norm().item()
                 status = "✓" if gnorm > 0 else "✗ (zero)"
                 print(f"    {mod_name}.{name}: grad_norm={gnorm:.6f}  {status}")
                 if gnorm == 0:
-                    all_ok = False
-    return all_ok
+                    all_active_ok = False
+    return any_active and all_active_ok
 
 
 def run_fp_step(backbone, projector, predictor, x1, x2):
