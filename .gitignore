@@ -20,7 +20,7 @@ data/
 *.swp
 
 # Slurm logs
-slurm-*.out
+*.out
 
 # Env
 .env
