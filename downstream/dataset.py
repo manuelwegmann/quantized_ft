@@ -10,7 +10,7 @@ Label file: data/zero_shot_findings_disease_cls.csv  (30 binary columns)
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import nibabel as nib
 import numpy as np
@@ -47,15 +47,18 @@ class MerlinDataset(Dataset):
         meta_file: Optional[str] = None,
         split: str = "train",
         seed: int = 42,
+        label_cols: Optional[List[str]] = None,
+        require_labeled: bool = False,
     ):
         assert split in {"train", "val", "test"}
         self.split = split
+        self.require_labeled = require_labeled
 
         max_env = os.environ.get("CT_CLIP_MAX_SAMPLES")
         self.max_samples = int(max_env) if max_env else None
 
         self._valid_accessions = self._load_report_accessions(reports_file)
-        self._label_lookup, self.label_names = self._load_labels(labels_file)
+        self._label_lookup, self.label_names = self._load_labels(labels_file, label_cols)
         self._meta = self._load_meta(meta_file)
 
         all_samples = self._discover_samples(data_folder)
@@ -77,21 +80,24 @@ class MerlinDataset(Dataset):
             raise ValueError("Reports file must contain 'VolumeName' or 'study id'.")
         return {_normalize_name(v) for v in df[id_col] if _normalize_name(v) is not None}
 
-    def _load_labels(self, labels_file: str):
+    def _load_labels(self, labels_file: str, label_cols: Optional[List[str]] = None):
         df = pd.read_csv(labels_file)
         id_col = _first_column(df, ["VolumeName", "study id", "StudyInstanceUID"])
         if id_col is None:
             raise ValueError("Labels file must contain 'VolumeName' or 'study id'.")
-        label_cols = [c for c in df.columns if c != id_col]
+        cols = label_cols if label_cols is not None else [c for c in df.columns if c != id_col]
+        missing = [c for c in cols if c not in df.columns]
+        if missing:
+            raise ValueError(f"Requested label columns not found in labels file: {missing}")
         lookup = {}
         for _, row in df.iterrows():
             name = _normalize_name(row[id_col])
             if name is None:
                 continue
-            lookup[name] = pd.to_numeric(row[label_cols], errors="coerce").to_numpy(
+            lookup[name] = pd.to_numeric(row[cols], errors="coerce").to_numpy(
                 dtype=np.float32
             )
-        return lookup, label_cols
+        return lookup, cols
 
     def _load_meta(self, meta_file: Optional[str]) -> dict:
         if meta_file is None:
@@ -116,7 +122,10 @@ class MerlinDataset(Dataset):
                 continue
             if name not in self._label_lookup:
                 continue
-            samples.append((str(nii_file), self._label_lookup[name]))
+            labels = self._label_lookup[name]
+            if self.require_labeled and np.any(labels < 0):
+                continue
+            samples.append((str(nii_file), labels))
             if self.max_samples and len(samples) >= self.max_samples:
                 break
         return samples

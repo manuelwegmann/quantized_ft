@@ -2,6 +2,7 @@ import sys
 import torch
 import torch.nn as nn
 from pathlib import Path
+from typing import Optional
 
 _CT_CLIP_ROOT = Path("/home/nlr950/Dir/CT-CLIP")
 for _p in [
@@ -42,11 +43,14 @@ class CTViTBackbone(nn.Module):
                     to the pretrained representation)
     """
 
-    def __init__(self, checkpoint_path: str, use_pre_vq: bool = False):
+    def __init__(self, checkpoint_path: Optional[str] = None, use_pre_vq: bool = False):
         super().__init__()
         self.use_pre_vq = use_pre_vq
         self.ctvit = CTViT(**_CTVIT_KWARGS)
-        self._load_checkpoint(checkpoint_path)
+        if checkpoint_path is not None:
+            self._load_checkpoint(checkpoint_path)
+        else:
+            print("[backbone] no checkpoint — using random initialisation")
 
     def _load_checkpoint(self, checkpoint_path: str):
         ckpt = torch.load(checkpoint_path, map_location="cpu")
