@@ -76,11 +76,22 @@ classification, macro-mean AUROC.
 
 ## Intermediate tests remaining (in order)
 
-### Downstream pipeline smoke test  ← next
-- Load a small labelled subset, verify 70/15/15 split is consistent
-- Run frozen backbone → LinearProbe → BCE loss → backward
-- Confirm AUROC computation runs to completion
-- Validates the evaluation pipeline before a multi-hour pretraining run
+### Downstream pipeline smoke test  ✓ done (job 1714, 2026-04-24)
+- Pipeline runs end-to-end ✓
+- Pretrained 0.6667 vs Random 0.8333 on 21/4/5 split — not meaningful at this n
+- Two bugs fixed: `best_state=None` crash risk, misleading "per split" print
+
+### Pretrained vs random: feature quality learning curve  ← next
+- 1943 scans on disk with explicit atelectasis label (5097 total, 9498 in CSV)
+- Step 1: extract + cache features for all 1943 scans (both backbones)
+  ```bash
+  sbatch scripts/cache_probe_features_slurm.sbatch   # ~8h
+  ```
+- Step 2: sweep N_train = [30, 100, 300, 1000, all], 5 seeds each
+  ```bash
+  sbatch scripts/run_learning_curve_slurm.sbatch      # ~minutes
+  ```
+- Output: runs/learning_curve/results.json
 
 ---
 

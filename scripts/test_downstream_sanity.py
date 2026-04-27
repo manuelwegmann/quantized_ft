@@ -102,8 +102,8 @@ def train_probe(
         shuffle=True,
     )
 
-    best_val_auroc = 0.0
-    best_state = None
+    best_val_auroc = -1.0
+    best_state = {k: v.clone() for k, v in probe.state_dict().items()}
 
     for epoch in range(1, epochs + 1):
         probe.train()
@@ -201,7 +201,7 @@ def main():
     if args.max_samples is not None:
         import os
         os.environ["CT_CLIP_MAX_SAMPLES"] = str(args.max_samples)
-        print(f"[smoke test] max_samples={args.max_samples} per split")
+        print(f"[smoke test] max_samples={args.max_samples} total (split before probe)")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device : {device}")
