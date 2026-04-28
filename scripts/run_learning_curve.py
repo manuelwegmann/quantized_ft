@@ -1,18 +1,19 @@
 """
-Learning curve: pretrained vs random-init backbone for atelectasis classification.
+Learning curve: pretrained ViT vs random ViT vs random CNN for atelectasis.
 
-Loads cached 512-dim features (from cache_probe_features.py) and sweeps
-N_train samples, reporting mean ± std over multiple random seeds for:
-  AUROC, accuracy, precision, recall, F1  (threshold=0.5 for the latter four)
+Loads cached features and sweeps N_train samples, reporting mean ± std over
+multiple random seeds for: AUROC, accuracy, precision, recall, F1.
 
-AUROC is used for val checkpoint selection (threshold-free, more stable).
+The CNN baseline (random_cnn) is included automatically if its feature cache
+exists (runs/feature_cache/random_cnn/). Feature dim is inferred from the
+cached tensors, so ViT (512-dim) and CNN (256-dim) are handled transparently.
+
+AUROC drives val checkpoint selection and early stopping (threshold-free).
 Accuracy/precision/recall/F1 are computed on the test set at threshold=0.5.
-
-Runtime is minutes (no CT loading).
 
 Usage:
     python scripts/run_learning_curve.py
-    python scripts/run_learning_curve.py --ns 30,100,300,1000,all --seeds 10 --epochs 300
+    python scripts/run_learning_curve.py --ns 30,100,300,1000,all --seeds 5 --epochs 1000
 """
 
 import argparse
@@ -34,12 +35,17 @@ from torch.utils.data import DataLoader, TensorDataset
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
-from models.backbone import EMBED_DIM
 
 CACHE_DIR  = _PROJECT_ROOT / "runs" / "feature_cache"
 OUTPUT_DIR = _PROJECT_ROOT / "runs" / "learning_curve"
 
 METRICS = ("auroc", "accuracy", "precision", "recall", "f1")
+
+DISPLAY = {
+    "pretrained": "ViT pretrained",
+    "random":     "ViT random",
+    "random_cnn": "CNN random",
+}
 
 
 def load_split(cache_dir: Path, backbone: str, split: str):
@@ -60,14 +66,17 @@ def train_probe(
     lr: float = 1e-3,
     patience: int = 10,
     eval_every: int = 20,
-) -> nn.Module:
+):
     """
-    patience: number of consecutive val checks without improvement before stopping.
-              Each check is every eval_every epochs, so patience=10 + eval_every=20
-              means stop after 200 epochs of no progress.
+    Probe input dim is inferred from train_feats, so this works for any
+    backbone (ViT 512-dim, CNN 256-dim, etc.) without configuration.
+
+    patience: consecutive val checks without improvement before stopping.
+              patience=10 + eval_every=20 → stop after 200 stagnant epochs.
     """
     torch.manual_seed(seed)
-    probe = nn.Linear(EMBED_DIM, 1).to(device)
+    embed_dim = train_feats.shape[1]
+    probe = nn.Linear(embed_dim, 1).to(device)
     opt   = torch.optim.Adam(probe.parameters(), lr=lr)
     crit  = nn.BCEWithLogitsLoss()
 
@@ -135,7 +144,6 @@ def compute_metrics(probe: nn.Module, feats: torch.Tensor, labels: torch.Tensor,
 
 def run_n(train_feats, train_labels, val_feats, val_labels,
           test_feats, test_labels, n_train, seeds, device, epochs) -> dict:
-    """Returns {metric: [value_per_seed]} for all METRICS."""
     per_seed = {m: [] for m in METRICS}
     per_seed["stopped_epoch"] = []
     for seed in seeds:
@@ -158,28 +166,53 @@ def _fmt(mean, std):
     return f"{mean:.4f} ±{std:.4f}"
 
 
-def print_head_to_head(results: dict, ns: list) -> None:
+def print_results(results: dict, backbones: list, ns: list) -> None:
+    col_w = 18
+    # ── per-N detailed table ───────────────────────────────────────────────
     for n in ns:
-        p = results["pretrained"][n]
-        r = results["random"][n]
-        header = f"  N_train = {n}"
-        print(f"\n{'='*62}")
+        print(f"\n{'='*72}")
+        print(f"  N_train = {n}")
+        print(f"{'='*72}")
+        header = f"  {'Metric':<12}" + "".join(f"  {DISPLAY[b]:>{col_w}}" for b in backbones)
         print(header)
-        print(f"{'='*62}")
-        print(f"  {'Metric':<12}  {'Pretrained':>16}  {'Random':>16}  {'Delta':>8}")
-        print(f"  {'-'*12}  {'-'*16}  {'-'*16}  {'-'*8}")
+        print(f"  {'-'*12}" + f"  {'-'*col_w}" * len(backbones))
         for m in METRICS:
-            pm = float(np.mean(p[m]))
-            ps = float(np.std(p[m]))
-            rm = float(np.mean(r[m]))
-            rs = float(np.std(r[m]))
-            delta = pm - rm
-            sign  = "+" if delta >= 0 else ""
-            print(f"  {m:<12}  {_fmt(pm, ps):>16}  {_fmt(rm, rs):>16}  {sign}{delta:.4f}")
-        p_ep = "  ".join(str(e) for e in p["stopped_epoch"])
-        r_ep = "  ".join(str(e) for e in r["stopped_epoch"])
-        print(f"  {'epochs':<12}  [{p_ep}]")
-        print(f"  {'':12}  [{r_ep}]")
+            row = f"  {m:<12}"
+            for b in backbones:
+                mean_m = float(np.mean(results[b][n][m]))
+                std_m  = float(np.std(results[b][n][m]))
+                row += f"  {_fmt(mean_m, std_m):>{col_w}}"
+            print(row)
+        # stopped epochs per backbone
+        for b in backbones:
+            ep_str = "  ".join(str(e) for e in results[b][n]["stopped_epoch"])
+            print(f"  {'epochs' if b == backbones[0] else '':12}  {DISPLAY[b]}: [{ep_str}]")
+
+    # ── AUROC learning curve summary ───────────────────────────────────────
+    print(f"\n{'='*72}")
+    print("AUROC learning curve")
+    print(f"{'='*72}")
+    header = f"  {'N_train':>8}" + "".join(f"  {DISPLAY[b]:>{col_w}}" for b in backbones)
+    if len(backbones) > 1:
+        header += f"  {'Δ pretrained':>14}"
+    print(header)
+    print(f"  {'-'*8}" + f"  {'-'*col_w}" * len(backbones) + ("  " + "-"*14 if len(backbones) > 1 else ""))
+    for n in ns:
+        row = f"  {n:>8d}"
+        p_mean = float(np.mean(results["pretrained"][n]["auroc"])) if "pretrained" in results else None
+        for b in backbones:
+            mean_a = float(np.mean(results[b][n]["auroc"]))
+            std_a  = float(np.std(results[b][n]["auroc"]))
+            row += f"  {_fmt(mean_a, std_a):>{col_w}}"
+        if p_mean is not None and len(backbones) > 1:
+            # show delta of each non-pretrained backbone vs pretrained
+            deltas = []
+            for b in backbones:
+                if b != "pretrained":
+                    d = p_mean - float(np.mean(results[b][n]["auroc"]))
+                    deltas.append(f"+{d:.4f}" if d >= 0 else f"{d:.4f}")
+            row += f"  {' / '.join(deltas):>14}"
+        print(row)
 
 
 def main():
@@ -196,39 +229,39 @@ def main():
     seeds  = list(range(args.seeds))
     cache  = Path(args.cache_dir)
 
+    # ── load whichever caches exist ────────────────────────────────────────
+    candidates = ["pretrained", "random", "random_cnn"]
+    backbones  = [b for b in candidates if (cache / b / "train_feats.pt").exists()]
+    if not backbones:
+        raise FileNotFoundError(f"No feature caches found under {cache}")
+
     print("Loading cached features...")
     data = {}
-    for backbone in ("pretrained", "random"):
-        data[backbone] = {
-            split: load_split(cache, backbone, split)
-            for split in ("train", "val", "test")
-        }
+    for b in backbones:
+        data[b] = {s: load_split(cache, b, s) for s in ("train", "val", "test")}
+        dim = data[b]["train"][0].shape[1]
+        print(f"  {DISPLAY[b]:<18}  train={len(data[b]['train'][0])}  dim={dim}")
+
     n_train_total = len(data["pretrained"]["train"][0])
-    n_val         = len(data["pretrained"]["val"][0])
-    n_test        = len(data["pretrained"]["test"][0])
-    print(f"  train={n_train_total}  val={n_val}  test={n_test}")
 
     ns_raw = [x.strip() for x in args.ns.split(",")]
-    ns = []
-    for x in ns_raw:
-        if x == "all":
-            ns.append(n_train_total)
-        else:
-            v = int(x)
-            if v <= n_train_total:
-                ns.append(v)
-    ns = sorted(set(ns))
+    ns = sorted({
+        n_train_total if x == "all" else int(x)
+        for x in ns_raw
+        if x == "all" or int(x) <= n_train_total
+    })
     print(f"N_train sweep : {ns}")
     print(f"Seeds         : {seeds}  (per N)")
     print(f"Epochs        : {args.epochs}")
+    print(f"Backbones     : {[DISPLAY[b] for b in backbones]}")
 
     results = {}
-    for backbone in ("pretrained", "random"):
-        print(f"\n=== {backbone} ===")
-        train_feats, train_labels = data[backbone]["train"]
-        val_feats,   val_labels   = data[backbone]["val"]
-        test_feats,  test_labels  = data[backbone]["test"]
-        results[backbone] = {}
+    for b in backbones:
+        print(f"\n=== {DISPLAY[b]} ===")
+        train_feats, train_labels = data[b]["train"]
+        val_feats,   val_labels   = data[b]["val"]
+        test_feats,  test_labels  = data[b]["test"]
+        results[b] = {}
         for n in ns:
             per_seed = run_n(
                 train_feats, train_labels,
@@ -236,50 +269,36 @@ def main():
                 test_feats,  test_labels,
                 n, seeds, device, args.epochs,
             )
-            results[backbone][n] = per_seed
-            auroc_str   = "  ".join(f"{a:.4f}" for a in per_seed["auroc"])
-            epochs_str  = "  ".join(str(e) for e in per_seed["stopped_epoch"])
+            results[b][n] = per_seed
+            auroc_str  = "  ".join(f"{a:.4f}" for a in per_seed["auroc"])
+            epochs_str = "  ".join(str(e) for e in per_seed["stopped_epoch"])
             mean_a = float(np.mean(per_seed["auroc"]))
             std_a  = float(np.std(per_seed["auroc"]))
             print(f"  N={n:6d}  AUROC {mean_a:.4f} ±{std_a:.4f}   [{auroc_str}]")
             print(f"          stopped at epoch: [{epochs_str}]")
 
-    print_head_to_head(results, ns)
+    print_results(results, backbones, ns)
 
-    # AUROC learning curve summary table
-    print(f"\n{'='*62}")
-    print("AUROC learning curve")
-    print(f"{'='*62}")
-    print(f"  {'N_train':>8}  {'Pretrained':>16}  {'Random':>16}  {'Delta':>8}")
-    print(f"  {'-'*8}  {'-'*16}  {'-'*16}  {'-'*8}")
-    for n in ns:
-        pm = float(np.mean(results["pretrained"][n]["auroc"]))
-        ps = float(np.std(results["pretrained"][n]["auroc"]))
-        rm = float(np.mean(results["random"][n]["auroc"]))
-        rs = float(np.std(results["random"][n]["auroc"]))
-        delta = pm - rm
-        sign  = "+" if delta >= 0 else ""
-        print(f"  {n:>8d}  {_fmt(pm, ps):>16}  {_fmt(rm, rs):>16}  {sign}{delta:.4f}")
-
+    # ── save ──────────────────────────────────────────────────────────────
     out_dir = OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "results.json"
 
-    # Serialise: convert numpy scalars and lists to plain Python
     def serialise(obj):
         if isinstance(obj, dict):
             return {str(k): serialise(v) for k, v in obj.items()}
         if isinstance(obj, list):
-            return [float(x) for x in obj]
+            return [int(x) if isinstance(x, (int, np.integer)) else float(x) for x in obj]
         return float(obj)
 
+    out_path = out_dir / "results.json"
     with open(out_path, "w") as f:
         json.dump({
-            "ns":      ns,
-            "epochs":  args.epochs,
-            "seeds":   seeds,
-            "metrics": list(METRICS),
-            "results": serialise(results),
+            "ns":       ns,
+            "epochs":   args.epochs,
+            "seeds":    seeds,
+            "metrics":  list(METRICS),
+            "backbones": backbones,
+            "results":  serialise(results),
         }, f, indent=2)
     print(f"\nResults saved → {out_path}")
 
