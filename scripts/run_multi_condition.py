@@ -35,11 +35,21 @@ DEFAULT_CONDITIONS = (
     "pleural_effusion,cardiomegaly,gallstones"
 )
 DISPLAY = {
-    "pretrained": "ViT pretrained",
-    "pretrained_pre_vq": "ViT pretrained pre-VQ",
-    "random":     "ViT random",
-    "random_cnn": "CNN random",
+    "pretrained":              "ViT pretrained",
+    "pretrained_pre_vq":       "ViT pre-VQ (FP)",
+    "pretrained_pre_vq_w8a8":  "pre-VQ W8A8",
+    "pretrained_pre_vq_w4a8":  "pre-VQ W4A8",
+    "pretrained_pre_vq_w4a4":  "pre-VQ W4A4",
+    "pretrained_pre_vq_w2a4":  "pre-VQ W2A4",
+    "random":                  "ViT random",
+    "random_cnn":              "CNN random",
 }
+
+
+def _display(backbone: str) -> str:
+    return DISPLAY.get(backbone, backbone.replace("_", " "))
+
+
 METRICS = ("auroc", "accuracy", "precision", "recall", "f1")
 
 
@@ -150,6 +160,10 @@ def _fmt(mean, std):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cache_dir",   default=str(CACHE_DIR))
+    parser.add_argument("--output_dir",  default=str(OUTPUT_DIR))
+    parser.add_argument("--backbones",   default="",
+                        help="Comma-separated backbone names to evaluate. "
+                             "Defaults to the standard four if not set.")
     parser.add_argument("--conditions",  default=DEFAULT_CONDITIONS)
     parser.add_argument("--epochs",      type=int, default=1000)
     parser.add_argument("--seeds",       type=int, default=5)
@@ -169,12 +183,16 @@ def main():
     print(f"Full cache: {len(accessions)} scans, {len(label_names)} conditions")
 
     # ── load features for available backbones ─────────────────────────────
-    candidates = ["pretrained", "pretrained_pre_vq", "random", "random_cnn"]
+    default_candidates = ["pretrained", "pretrained_pre_vq", "random", "random_cnn"]
+    if args.backbones:
+        candidates = [b.strip() for b in args.backbones.split(",")]
+    else:
+        candidates = default_candidates
     backbones  = [b for b in candidates if (cache / b / "feats.pt").exists()]
     feats_all  = {}
     for b in backbones:
         feats_all[b] = torch.load(cache / b / "feats.pt", map_location="cpu")
-        print(f"  {DISPLAY[b]:<18}  {feats_all[b].shape}  dim={feats_all[b].shape[1]}")
+        print(f"  {_display(b):<24}  {feats_all[b].shape}  dim={feats_all[b].shape[1]}")
 
     # ── build N list (use first backbone as reference for n_train_total) ──
     # actual per-condition N determined after filtering; use None as placeholder
@@ -235,7 +253,7 @@ def main():
         # ── per-condition AUROC summary ────────────────────────────────────
         col_w = 18
         print(f"\n  AUROC summary — {cond}")
-        header = f"  {'N_train':>8}" + "".join(f"  {DISPLAY[b]:>{col_w}}" for b in backbones)
+        header = f"  {'N_train':>8}" + "".join(f"  {_display(b):>{col_w}}" for b in backbones)
         print(header)
         print(f"  {'-'*8}" + f"  {'-'*col_w}" * len(backbones))
         ref_b = "pretrained" if "pretrained" in backbones else backbones[0]
@@ -252,7 +270,7 @@ def main():
     print("Cross-condition AUROC  (N=all, full training set)")
     print(f"{'='*72}")
     col_w = 18
-    header = f"  {'Condition':<32}" + "".join(f"  {DISPLAY[b]:>{col_w}}" for b in backbones)
+    header = f"  {'Condition':<32}" + "".join(f"  {_display(b):>{col_w}}" for b in backbones)
     print(header)
     print(f"  {'-'*32}" + f"  {'-'*col_w}" * len(backbones))
     for cond in conditions:
@@ -268,7 +286,7 @@ def main():
         print(row)
 
     # ── save ──────────────────────────────────────────────────────────────
-    out_dir = OUTPUT_DIR
+    out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     def serialise(obj):

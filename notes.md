@@ -103,11 +103,11 @@ classification, macro-mean AUROC.
 - Pretrained backbone consistently outperforms random init at all data scales;
   gap largest at moderate N (~300), shrinks slightly at full N (expected).
 
-### Multi-condition linear probe evaluation  ✓ done (job 9610, 2026-04-28)
+### Multi-condition linear probe evaluation  ✓ done (job 9610 → 9820, 2026-04-28)
 - Script: `scripts/run_multi_condition.py`, sbatch: `scripts/run_multi_condition_slurm.sbatch`
 - 6 conditions: atelectasis, surgically_absent_gallbladder, renal_cyst,
   pleural_effusion, cardiomegaly, gallstones
-- 3 backbones: pretrained ViT, random ViT, random CNN
+- 4 backbones: pretrained ViT (post-VQ), pretrained ViT (pre-VQ), random ViT, random CNN
 - N_train sweep [100, 300, all], 5 seeds, 1000 epochs; 70/15/15 split per condition
 - Output: `runs/multi_condition/results.json`
 
@@ -174,7 +174,62 @@ classification, macro-mean AUROC.
 
 ---
 
+### Decision: use pre-VQ features throughout all future experiments
+
+The multi-condition results showed pre-VQ features are better than post-VQ on most
+conditions (e.g. atelectasis +0.034, pleural effusion +0.067 at full N). Two reasons:
+
+1. **VQ domain mismatch**: The codebook was learned on chest CTs. For abdominal CTs,
+   tokens are discretised into whichever chest-CT entries are nearest — a lossy,
+   domain-wrong projection.
+2. **VQ interacts badly with quantization**: The VQ is a hard nearest-neighbour lookup
+   (non-smooth). Quantization noise in transformer activations can push tokens across
+   Voronoi boundaries, causing discrete jumps in the final representation. Pre-VQ
+   removes this interaction and gives a cleaner measurement of quantization's effect
+   on the transformer representations alone.
+
+**All subsequent experiments (quantization baselines and SimSiam pretraining) use
+`use_pre_vq=True`.** Both `configs/pretrain_fp.yaml` and `configs/pretrain_ssql.yaml`
+should be updated to reflect this before pretraining is launched.
+
+---
+
+### Quantization baseline — pre-VQ features under PTQ  ← in progress
+
+Goal: establish how much performance degrades when the pretrained CT-CLIP backbone
+is quantized at inference time (post-training quantization, no QAT). This sets the
+baseline that FP and SSQL SimSiam pretraining will later be measured against.
+
+**Method:** fake quantization (simulated/QAT-style) via `quantized_forward` context
+manager. Weights and activations of all `nn.Linear` layers are constrained to an
+n-bit uniform grid (dynamic per-tensor asymmetric min-max) for each forward pass;
+arithmetic runs in float32. The VQ codebook is bypassed (`use_pre_vq=True`).
+Feature vectors saved to disk are float32 (information loss is baked into the values).
+
+**Configs evaluated:** (w_bits, a_bits) ∈ {(8,8), (4,8), (4,4), (2,4)}
+
+| Config | Status |
+|--------|--------|
+| pre-VQ FP (unquantized) | ✓ cached (`pretrained_pre_vq/feats.pt`) |
+| W8A8 | ✓ cached (job 818) |
+| W4A8 | ✓ cached (job 818) |
+| W4A4 | ⏳ pending resubmission |
+| W2A4 | ⏳ pending resubmission |
+
+Scripts:
+- `scripts/cache_quantized_features.py` / `cache_quantized_features_slurm.sbatch`
+- `scripts/run_quant_probe_slurm.sbatch` — runs `run_multi_condition.py` with
+  `--backbones pretrained_pre_vq,...` and `--output_dir runs/quant_probe`
+
+Note: `run_multi_condition.py` now accepts `--backbones` (custom backbone list)
+and `--output_dir` to avoid overwriting `runs/multi_condition/results.json`.
+
+---
+
 ## Full experiments  ← next
+
+**Before submitting pretraining:** update both configs to `use_pre_vq: true`
+(currently set to `false`).
 
 1. FP SimSiam pretraining — full Merlin dataset, 100 epochs
    ```bash
