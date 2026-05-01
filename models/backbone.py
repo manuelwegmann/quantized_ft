@@ -90,6 +90,8 @@ class CTViTBackbone(nn.Module):
         x: (B, 1, D, H, W)
         Returns: (B, 512)
         """
+        assert tuple(x.shape[3:]) == self.ctvit.image_size, \
+            f"Expected spatial dims (H, W) {self.ctvit.image_size}, got {tuple(x.shape[3:])}"
         if self.use_pre_vq:
             # Patch embed → spatial+temporal transformers, skip VQ codebook
             tokens = self.ctvit.to_patch_emb(x)   # (B, t, h, w, dim)

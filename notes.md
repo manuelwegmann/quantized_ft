@@ -194,7 +194,13 @@ should be updated to reflect this before pretraining is launched.
 
 ---
 
-### Quantization baseline — pre-VQ features under PTQ  ← in progress
+### Notes
+
+Check that everything went well with quantized inference.
+
+---
+
+### Quantization baseline — pre-VQ features under PTQ  ✓ done
 
 Goal: establish how much performance degrades when the pretrained CT-CLIP backbone
 is quantized at inference time (post-training quantization, no QAT). This sets the
@@ -213,8 +219,8 @@ Feature vectors saved to disk are float32 (information loss is baked into the va
 | pre-VQ FP (unquantized) | ✓ cached (`pretrained_pre_vq/feats.pt`) |
 | W8A8 | ✓ cached (job 818) |
 | W4A8 | ✓ cached (job 818) |
-| W4A4 | ⏳ pending resubmission |
-| W2A4 | ⏳ pending resubmission |
+| W4A4 | ✓ cached (job 1203) |
+| W2A4 | ✓ cached (job 1203) |
 
 Scripts:
 - `scripts/cache_quantized_features.py` / `cache_quantized_features_slurm.sbatch`
@@ -223,6 +229,56 @@ Scripts:
 
 Note: `run_multi_condition.py` now accepts `--backbones` (custom backbone list)
 and `--output_dir` to avoid overwriting `runs/multi_condition/results.json`.
+
+---
+
+### Mini experiment — FP vs SSQL SimSiam (n=300, 40 epochs)  ✓ done (job 3213, 2026-05-01)
+
+Script: `scripts/run_mini_experiment.py`, sbatch: `scripts/run_mini_experiment_slurm.sbatch`
+Config: n_pretrain=300, epochs=40, norm=ln, lr=3e-4 (cosine LR not yet active), quant=W4A4
+Output: `runs/mini_experiment_ln/`
+
+**Job 1311 (2026-04-29) — FAILED:** BN + lr=0.05 → collapse (loss=0.0000 epochs 2–40). Killed by OOM.
+**Job 3213 (2026-04-30 → 2026-05-01) — PASSED:** LN + lr=3e-4. No collapse.
+
+**Training curves:**
+- FP loss: -0.93 → **-1.99** (saturates epoch 3–5; theoretical max for 2-direction sum)
+- SSQL loss: -2.45 → **-3.99** (saturates epoch 3–5; 2× FP because L_ssql + L_fp summed)
+- Both plateau near-instantly → projector/predictor snap into place on pretrained features
+
+**Linear probe — macro-mean AUROC (N=all, 6 conditions):**
+
+| Backbone        | AUROC  | W4A4 drop | Retention |
+|-----------------|--------|-----------|-----------|
+| Original CT-CLIP (no SimSiam, ref) | 0.653 | 12.2 pp | 81.3% |
+| FP SimSiam      | 0.641  | 13.3 pp   | 79.2%     |
+| SSQL SimSiam    | 0.632  | **9.4 pp**| **85.1%** |
+
+**Key finding:** SSQL pretraining improves quantization robustness even with only 300 scans
+(9.4 pp drop vs 12.2 pp for original CT-CLIP). FP SimSiam makes it slightly worse.
+Absolute FP accuracy slightly regresses — backbone barely adapts on 300 scans.
+
+**Diagnosis — backbone not adapting:**
+- Loss saturates by epoch 3 → projector/predictor converge → backbone gradient signal
+  drops to near zero
+- 300 scans insufficient to maintain training pressure on the backbone
+- Constant LR provides no mechanism to overcome the plateau
+
+**Fixes applied to `pretrain/trainer.py` (2026-05-01):**
+1. **Cosine LR schedule**: `CosineAnnealingLR(T_max=epochs, eta_min=0)`, default for all new runs.
+   Override with `config["training"]["lr_schedule"] = "constant"` to disable.
+2. **Backbone gradient norm logging**: per-epoch `backbone_grad=X.XXe-XX` in training output.
+   Confirms whether backbone is receiving signal each epoch.
+
+**Diagnostic script added (2026-05-01):**
+`scripts/diagnose_pretraining.py` — loads saved checkpoints and computes per-epoch:
+uniformity, effective rank, kNN macro-AUROC. Run on any pretrain output dir:
+```bash
+python scripts/diagnose_pretraining.py \
+    --checkpoint_dirs runs/mini_experiment_ln/pretrain_fp \
+                      runs/mini_experiment_ln/pretrain_ssql
+```
+For per-epoch curves in future runs: add `--save_every 5` to `run_mini_experiment.py`.
 
 ---
 

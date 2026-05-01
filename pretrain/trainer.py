@@ -63,6 +63,16 @@ def load_checkpoint(
 # Single epoch
 # ---------------------------------------------------------------------------
 
+def _backbone_grad_norm(backbone: nn.Module) -> float:
+    """L2 norm of all backbone parameter gradients that are non-None."""
+    sq_sum = sum(
+        p.grad.data.norm(2).item() ** 2
+        for p in backbone.parameters()
+        if p.grad is not None
+    )
+    return sq_sum ** 0.5
+
+
 def _train_epoch(
     backbone: nn.Module,
     projector: nn.Module,
@@ -74,12 +84,16 @@ def _train_epoch(
     use_aux_loss: bool,
     w_bits_range: tuple,
     a_bits_range: tuple,
-) -> float:
+) -> tuple[float, float]:
+    """Returns (avg_loss, avg_backbone_grad_norm)."""
     backbone.train()
     projector.train()
     predictor.train()
 
     total_loss = 0.0
+    total_backbone_grad = 0.0
+    n_batches = 0
+
     for x1, x2 in loader:
         x1 = x1.to(device)
         x2 = x2.to(device)
@@ -121,11 +135,14 @@ def _train_epoch(
 
         optimizer.zero_grad()
         loss.backward()
+        total_backbone_grad += _backbone_grad_norm(backbone)
         optimizer.step()
 
         total_loss += loss.item()
+        n_batches += 1
 
-    return total_loss / max(len(loader), 1)
+    n = max(n_batches, 1)
+    return total_loss / n, total_backbone_grad / n
 
 
 # ---------------------------------------------------------------------------
@@ -167,22 +184,36 @@ def train(
         weight_decay=config["training"].get("weight_decay", 1e-4),
     )
 
+    lr_schedule = config["training"].get("lr_schedule", "cosine")
+    scheduler = (
+        torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=0)
+        if lr_schedule == "cosine" else None
+    )
+
     start_epoch = 0
     resume_path = output_dir / "checkpoint_latest.pt"
     if resume_path.exists():
         start_epoch = load_checkpoint(backbone, projector, predictor, optimizer, str(resume_path))
         print(f"[trainer] resumed from epoch {start_epoch}")
+        if scheduler is not None:
+            for _ in range(start_epoch):
+                scheduler.step()
 
     backbone.to(device)
     projector.to(device)
     predictor.to(device)
 
     for epoch in range(start_epoch, epochs):
-        avg_loss = _train_epoch(
+        avg_loss, backbone_grad = _train_epoch(
             backbone, projector, predictor, train_loader, optimizer,
             device, mode, use_aux, w_bits_range, a_bits_range,
         )
-        print(f"[pretrain] epoch {epoch + 1}/{epochs}  loss={avg_loss:.4f}")
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(f"[pretrain] epoch {epoch + 1}/{epochs}  loss={avg_loss:.4f}"
+              f"  backbone_grad={backbone_grad:.3e}  lr={current_lr:.2e}")
+
+        if scheduler is not None:
+            scheduler.step()
 
         save_checkpoint(
             backbone, projector, predictor, optimizer, epoch + 1,
