@@ -2,7 +2,7 @@
 #SBATCH --job-name=qft_diag
 #SBATCH --output=%x-%j.out
 #SBATCH --error=%x-%j.out
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:1
 #SBATCH --mem=24G
 #SBATCH --cpus-per-task=4
 #SBATCH --time=02:00:00
@@ -15,6 +15,16 @@
 #   sbatch scripts/diagnose_pretraining_slurm.sbatch
 #   sbatch --export=ALL,CHECKPOINT_DIRS="runs/exp_ln_1000/pretrain_fp runs/exp_ln_1000/pretrain_ssql",OUTPUT=runs/exp_ln_1000/diagnostics.json \
 #          scripts/diagnose_pretraining_slurm.sbatch
+
+echo "Checking GPU memory..."
+GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n 1)
+echo "GPU memory: ${GPU_MEM} MB"
+if [ "$GPU_MEM" -lt 20000 ]; then
+    echo "Not enough GPU memory — requeueing."
+    scontrol requeue "${SLURM_JOB_ID}"
+    exit 0
+fi
+echo "GPU OK — starting job"
 
 CHECKPOINT_DIRS="${CHECKPOINT_DIRS:-runs/mini_experiment_ln/pretrain_fp runs/mini_experiment_ln/pretrain_ssql}"
 OUTPUT="${OUTPUT:-runs/mini_experiment_ln/diagnostics.json}"

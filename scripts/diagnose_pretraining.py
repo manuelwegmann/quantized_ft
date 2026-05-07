@@ -50,6 +50,14 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    _MATPLOTLIB = True
+except ImportError:
+    _MATPLOTLIB = False
+
 _PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(Path(__file__).parent))          # scripts/ — for cache_all_features
@@ -186,6 +194,7 @@ def load_backbone_from_ckpt(ckpt_path: Path, device: torch.device) -> CTViTBackb
     backbone = CTViTBackbone(checkpoint_path=None, use_pre_vq=True)
     ckpt = torch.load(ckpt_path, map_location="cpu")
     backbone.load_state_dict(ckpt["backbone"])
+    print(f"Loaded checkpoint epoch {ckpt.get('epoch', 'n/a')}")
     backbone.to(device)
     return backbone
 
@@ -267,6 +276,60 @@ def _print_row(epoch: int, m: dict):
           f"knn_auroc={auroc_str}")
 
 
+# ── plotting ──────────────────────────────────────────────────────────────────
+
+def plot_results(all_results: dict, out_path: Path):
+    """
+    Save a 3-panel figure: uniformity, effective rank, and kNN AUROC over epochs.
+    Each run is one line; epoch 0 (base CT-CLIP) is marked with a star.
+    """
+    if not _MATPLOTLIB:
+        print("[warn] matplotlib not available — skipping plot")
+        return
+
+    metrics = [
+        ("uniformity",     "Uniformity (closer to 0 = collapsed)",     "upper right"),
+        ("effective_rank", "Effective Rank (↓ = collapsed)",            "upper right"),
+        ("knn_auroc",      "kNN macro-AUROC",                           "lower right"),
+    ]
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    for ax, (key, ylabel, legend_loc) in zip(axes, metrics):
+        for ci, (run_name, epoch_dict) in enumerate(all_results.items()):
+            epochs = sorted(epoch_dict.keys())
+            vals   = [epoch_dict[e][key] for e in epochs]
+            color  = colors[ci % len(colors)]
+
+            # Separate baseline (epoch 0) from fine-tuned epochs
+            base_ep  = [e for e in epochs if e == 0]
+            ft_eps   = [e for e in epochs if e != 0]
+            base_val = [epoch_dict[e][key] for e in base_ep]
+            ft_vals  = [epoch_dict[e][key] for e in ft_eps]
+
+            if ft_eps:
+                ax.plot(ft_eps, ft_vals, marker="o", markersize=4,
+                        color=color, label=run_name, linewidth=1.5)
+            if base_ep:
+                ax.plot(base_ep, base_val, marker="*", markersize=12,
+                        color=color, linestyle="none", zorder=5,
+                        label=f"{run_name} (base CT-CLIP)" if not ft_eps else None)
+                ax.axhline(base_val[0], color=color, linestyle="--",
+                           linewidth=0.8, alpha=0.5)
+
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel(ylabel)
+        ax.legend(loc=legend_loc, fontsize=8)
+        ax.grid(True, linewidth=0.4, alpha=0.5)
+
+    fig.suptitle("SimSiam pretraining diagnostics", fontsize=13, y=1.01)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    print(f"Plot saved  → {out_path}")
+    plt.close(fig)
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -286,6 +349,8 @@ def main():
     parser.add_argument("--conditions",  type=str,   default=DEFAULT_CONDITIONS)
     parser.add_argument("--output",      type=str,   default=None,
                         help="Path to save results JSON (default: <first_dir>/diagnostics.json).")
+    parser.add_argument("--no_plot",     action="store_true",
+                        help="Skip saving the metrics plot.")
     args = parser.parse_args()
 
     device     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -381,6 +446,10 @@ def main():
             f, indent=2,
         )
     print(f"\nResults saved → {out_path}")
+
+    if not args.no_plot:
+        plot_path = out_path.with_suffix(".png")
+        plot_results(all_results, plot_path)
 
 
 if __name__ == "__main__":

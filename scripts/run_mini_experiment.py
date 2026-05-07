@@ -74,7 +74,8 @@ def _extract(backbone, loader, device, w_bits=None, a_bits=None):
     return torch.cat(feats)
 
 
-def _pretrain_cfg(mode, output_dir, epochs, num_workers, lr, save_every=0, batch_size=2):
+def _pretrain_cfg(mode, output_dir, epochs, num_workers, lr, save_every=0, batch_size=2,
+                  freeze_epochs=0):
     cfg = {
         "mode": mode,
         "use_aux_loss": True,
@@ -85,6 +86,7 @@ def _pretrain_cfg(mode, output_dir, epochs, num_workers, lr, save_every=0, batch
             "num_workers": num_workers,
             "save_every": save_every if save_every > 0 else epochs,
             "lr_schedule": "cosine",
+            "freeze_epochs": freeze_epochs,
         },
         "projector":    {"in_dim": 512,  "hidden_dim": 2048, "out_dim": 2048},
         "predictor":    {"in_dim": 2048, "hidden_dim": 512,  "out_dim": 2048},
@@ -180,6 +182,8 @@ def main():
     parser.add_argument("--num_workers",      type=int, default=4)
     parser.add_argument("--num_workers_eval", type=int, default=2)
     parser.add_argument("--norm",         default="ln", choices=["bn", "ln"])
+    parser.add_argument("--freeze_epochs", type=int, default=0,
+                        help="Freeze backbone for this many epochs, then unfreeze. 0 = never frozen.")
     parser.add_argument("--conditions",   default=rmc.DEFAULT_CONDITIONS)
     parser.add_argument("--output_dir",   default="runs/mini_experiment")
     parser.add_argument("--phase",        default="all",
@@ -248,7 +252,8 @@ def main():
                        pretrain_loader,
                        _pretrain_cfg("fp", out / "pretrain_fp",
                                      args.epochs, args.num_workers, lr,
-                                     args.save_every, args.batch_size),
+                                     args.save_every, args.batch_size,
+                                     args.freeze_epochs),
                        device)
         del pretrain_loader
 
@@ -275,7 +280,8 @@ def main():
                        pretrain_loader,
                        _pretrain_cfg("ssql", out / "pretrain_ssql",
                                      args.epochs, args.num_workers, lr,
-                                     args.save_every, args.batch_size),
+                                     args.save_every, args.batch_size,
+                                     args.freeze_epochs),
                        device)
         del pretrain_loader
 

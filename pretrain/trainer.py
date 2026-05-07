@@ -8,6 +8,7 @@ Supports two modes:
 The same function handles both; mode is selected via config['mode'].
 """
 
+import json
 import os
 from pathlib import Path
 from typing import Dict
@@ -163,6 +164,12 @@ def train(
     output_dir  = Path(config["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    config_path = output_dir / "config.json"
+    if not config_path.exists():
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+        print(f"[trainer] config saved → {config_path}")
+
     w_bits_range = (
         config.get("quantization", {}).get("w_bits_min", 2),
         config.get("quantization", {}).get("w_bits_max", 8),
@@ -190,6 +197,8 @@ def train(
         if lr_schedule == "cosine" else None
     )
 
+    freeze_epochs = config["training"].get("freeze_epochs", 0)
+
     start_epoch = 0
     resume_path = output_dir / "checkpoint_latest.pt"
     if resume_path.exists():
@@ -203,14 +212,23 @@ def train(
     projector.to(device)
     predictor.to(device)
 
+    if freeze_epochs > 0 and start_epoch < freeze_epochs:
+        backbone.freeze()
+        print(f"[trainer] backbone frozen for first {freeze_epochs} epochs")
+
     for epoch in range(start_epoch, epochs):
+        if freeze_epochs > 0 and epoch == freeze_epochs:
+            backbone.unfreeze()
+            print(f"[trainer] backbone unfrozen at epoch {epoch + 1}")
+
         avg_loss, backbone_grad = _train_epoch(
             backbone, projector, predictor, train_loader, optimizer,
             device, mode, use_aux, w_bits_range, a_bits_range,
         )
         current_lr = optimizer.param_groups[0]["lr"]
+        frozen_str = "  [backbone frozen]" if epoch < freeze_epochs else ""
         print(f"[pretrain] epoch {epoch + 1}/{epochs}  loss={avg_loss:.4f}"
-              f"  backbone_grad={backbone_grad:.3e}  lr={current_lr:.2e}")
+              f"  backbone_grad={backbone_grad:.3e}  lr={current_lr:.2e}{frozen_str}")
 
         if scheduler is not None:
             scheduler.step()

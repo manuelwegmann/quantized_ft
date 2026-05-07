@@ -282,6 +282,251 @@ For per-epoch curves in future runs: add `--save_every 5` to `run_mini_experimen
 
 ---
 
+### Diagnostic results — mini experiment (job 3894, 2026-05-01)
+
+Script: `scripts/diagnose_pretraining.py` on `runs/mini_experiment_ln/pretrain_{fp,ssql}/`
+Eval: 500 scans (seed 42), k=20, 80/20 kNN split, 6 conditions.
+
+| Run | Uniformity (ep0→40) | Eff. rank (ep0→40) | kNN AUROC (ep0→40) |
+|-----|--------------------|--------------------|---------------------|
+| FP  | −0.544 → −0.076    | 104.2 → 86.4 (−18) | 0.569 → 0.505 (−0.065) |
+| SSQL| −0.544 → −0.023    | 104.2 → 78.0 (−26) | 0.569 → 0.525 (−0.045) |
+
+**Metric definitions:**
+- **Uniformity** `log mean exp(−2‖zᵢ−zⱼ‖²)`, L2-normalised features. Range (−∞, 0].
+  More negative = better spread on the unit sphere; → 0 means collapse.
+  Typical healthy SSL: −2 to −3. Complete collapse: 0.
+- **Effective rank** `exp(H(σ))`, H = Shannon entropy of normalised singular-value spectrum.
+  Range [1, D=512]. High = many dimensions used; → 1 = dimensional collapse.
+  Baseline CT-CLIP: 104 (typical for task-specific pretrained ViT).
+- **kNN macro-AUROC** cosine kNN (k=20), macro-averaged over 6 conditions.
+  Not directly comparable to linear probe AUROC (no trained head, smaller eval set).
+
+**Interpretation:**
+All three metrics move in the collapse direction for both runs.  The uniformity near 0
+and rank drop are consistent with projector/predictor collapse (loss saturated at −2.0 by
+epoch 3) slowly pulling backbone features toward a lower-dimensional, less-uniform manifold.
+The backbone itself only drifted 2.67% (FP) / 2.67% (SSQL) in L2 norm from CT-CLIP, so the
+backbone is degraded but not destroyed — linear probing still recovers 0.641 / 0.632 AUROC.
+
+SSQL anomaly: worse geometry (uniformity −0.023 vs −0.076, rank 78 vs 86) but better kNN
+AUROC (0.525 vs 0.505). Quantization noise may be concentrating the remaining discriminative
+signal into fewer, more robust dimensions — consistent with the better W4A4 retention
+(9.4 pp vs 13.3 pp drop) seen in the linear probe.
+
+**Note on diagnostic message:** `[backbone] no checkpoint — using random initialisation`
+appears for every non-epoch-0 checkpoint. This is a red herring: the `CTViTBackbone`
+constructor prints it when `checkpoint_path=None`, but `load_state_dict` immediately
+overwrites those weights with the SimSiam checkpoint. Verified: checkpoint contains 158
+backbone keys, epoch=40, weights differ from CT-CLIP baseline.
+
+---
+
+### Weekend experiments (submitted 2026-05-01, results 2026-05-02)
+
+All jobs used updated `run_mini_experiment_slurm.sbatch` with cosine LR.
+
+| Job | Config | Node | Status | Notes |
+|-----|--------|------|--------|-------|
+| A (3887) | pretrain_fp, N=1000, bs=2, LN | gpu14 | ✓ Done | Backbone grad non-zero all 40 epochs |
+| B (3888) | pretrain_ssql, N=1000, bs=2, LN | gpu02 | ✗ OOM ep1 | |
+| D (3889) | all, N=300, bs=8, BN | gpu02 | ✗ OOM ep1 | |
+| E (3891) | all, N=300, bs=16, BN | gpu02 | ✗ OOM      | |
+
+**Job A key result:** backbone grad ~1.2–1.3e-02 throughout all 40 epochs (vs near-zero
+after epoch 3 in N=300 run). Cosine LR is working. Feature cache extracted.
+
+**OOM root cause:** SSQL + aux loss runs 4 backbone forward passes simultaneously
+(2 FP + 2 quantized, all with full activation graphs), requiring ~2× FP memory.
+FP at bs=2 uses ~39 GB on a 40 GB A100; SSQL genuinely doesn't fit.
+BN at bs=8 also barely OOMed (38.96/39.49 GB). All jobs landed on gpu02 which had
+less headroom than gpu14 (where job A succeeded), compounding the issue.
+
+**Why batch size scaling is disproportionately expensive for this model:**
+The bottleneck is not the input CT volume but the self-attention mechanism in the
+spatial transformer. Attention materialises a `(B×t, heads, T, T)` matrix where:
+- T = (480/20)² = 576 spatial tokens per frame (patch_size=20, image_size=480)
+- t = 240/10 = 24 temporal steps (temporal_patch_size=10)
+- heads = 8
+
+Memory for this tensor scales as O(B × T²). At bs=2: ~510 MB per attention layer.
+At bs=8: ~2.04 GB — confirmed by the job 7786 crash which failed trying to allocate
+exactly 1.90 GiB for the `einsum('b h i d, b h j d -> b h i j', q, k)` call.
+This is on top of SimSiam's 2× (or SSQL's 4×) multiplier for multiple forward passes
+with full gradient graphs retained for backprop.
+
+**Fix if large batch sizes are ever required:** replace standard attention with
+Flash Attention (`F.scaled_dot_product_attention`), which computes the same result
+in O(T) memory by fusing the softmax and never materialising the full T×T matrix.
+
+**Fix:** `run_mini_experiment_slurm.sbatch` updated to request `gpu:h100:1` on
+`hendrixgpu16fl` (H100, 80 GB) as default. FP probe-only jobs can override with
+`--gres=gpu:a100:1 --nodelist=`.
+
+**Re-submit commands:**
+```bash
+# Job B (SSQL pretrain, N=1000)
+sbatch --export=ALL,PHASE=pretrain_ssql,N_PRETRAIN=1000,EPOCHS=40,SAVE_EVERY=5,OUTPUT_DIR=runs/exp_ln_1000 \
+       scripts/run_mini_experiment_slurm.sbatch
+
+# Job C (probe — after B finishes; FP features from job A already done)
+sbatch --gres=gpu:a100:1 --nodelist= --exclude=hendrixgpu05fl,hendrixgpu06fl \
+       --export=ALL,PHASE=probe,OUTPUT_DIR=runs/exp_ln_1000 \
+       scripts/run_mini_experiment_slurm.sbatch
+
+# Job D (BN feasibility, bs=8)
+sbatch --export=ALL,PHASE=all,N_PRETRAIN=300,EPOCHS=40,BATCH_SIZE=8,NORM=bn,SAVE_EVERY=5,OUTPUT_DIR=runs/exp_bn_bs8 \
+       scripts/run_mini_experiment_slurm.sbatch
+
+# Job E (BN feasibility, bs=16)
+sbatch --export=ALL,PHASE=all,N_PRETRAIN=300,EPOCHS=40,BATCH_SIZE=16,NORM=bn,SAVE_EVERY=5,OUTPUT_DIR=runs/exp_bn_bs16 \
+       scripts/run_mini_experiment_slurm.sbatch
+```
+
+---
+
+### Anti-collapse interventions
+
+If N=1000 + cosine LR is insufficient to keep the backbone training healthily, the
+following interventions are available, roughly in priority order for our failure mode
+(projector snapping at epoch 3, backbone barely adapting):
+
+**1. Stronger augmentations** *(highest impact)*
+The projector snaps because the pretext task is too easy — weak augmentations produce
+nearly identical views, so the projector trivially collapses onto a simple invariance.
+Harder views force the backbone to do real work throughout training.
+CT-specific options: more aggressive random cropping, intensity noise (scanner simulation),
+random flipping/rotation, simulated slice-thickness variation.
+Constraint: spatial and intensity transforms are valid; photometric transforms (colour
+jitter, grayscale) are not applicable to CT Hounsfield units.
+
+**2. Separate learning rates for projector/predictor vs. backbone**
+Use lower LR for the projector/predictor (slows snap, extends useful backbone gradient
+signal) while keeping or slightly raising backbone LR. Implement via two parameter groups
+in the optimizer. The goal is to delay projector convergence, not to freeze the backbone.
+
+**3. Gradient accumulation**
+Current effective batch size = 2. Accumulating over k steps gives effective batch = 2k
+with zero memory cost. Larger effective batch → better-estimated gradients per update,
+less noisy backbone signal, and BN becomes viable at k≥4.
+
+**4. VICReg-style variance regularization**
+Add `max(0, γ − std(zᵢ))` over each embedding dimension as an auxiliary term on the
+projector outputs. Directly penalises dimensional collapse without switching loss functions.
+Complement to SimSiam loss, not a replacement.
+
+**5. Momentum predictor (EMA)**
+Replace predictor weights with an EMA: `θ ← α·θ + (1−α)·θ_current`. Prevents the
+predictor from snapping to a trivial fixed point by always chasing a lagged version of
+itself. Analogous to BYOL's momentum encoder. Pairs well with separate LRs (#2).
+
+**6. Reduce projector capacity**
+A more expressive projector collapses faster. Halving the projector hidden dim or
+removing a layer makes the pretext task harder to shortcut.
+
+**7. Freeze backbone for first K epochs (progressive unfreezing)**
+Let projector/predictor reach a reasonable non-trivial state on frozen features, then
+unfreeze backbone with low LR. Backbone gradients are more informative once the
+projector has a useful (non-collapsed) objective.
+
+---
+
+## Collapse diagnostic experiments
+
+The diagnostic data (jobs 3894, 7870) shows the bulk of feature geometry
+deterioration happens in epochs 0–5 when backbone gradients are large (~0.39
+at epoch 1), then plateaus. The mechanism is inferred but not yet directly
+tested. The following experiments form a decision tree to isolate the cause.
+
+**What we know (measured):**
+- Backbone gradients large at epoch 1 (~0.39), fall rapidly, small after epoch 5
+- Uniformity, effective rank, kNN AUROC all degrade almost entirely in epochs 0–5
+- Features barely change after epoch 5 (consistent with near-zero gradients)
+
+**What we are inferring (not yet measured):**
+- Whether it is the gradient *direction* that is harmful, or just the magnitude
+- Whether the projector collapses first and drags the backbone, or vice versa
+- Whether weak augmentations (easy pretext task) are the primary driver
+
+---
+
+### Experiment 1 — Freeze backbone for first K epochs, then unfreeze
+
+**Implementation:** call `backbone.freeze()` for the first K epochs in
+`pretrain/trainer.py`, then `backbone.unfreeze()`. Run with K=5 and K=10.
+Run the diagnostic script on saved checkpoints afterwards.
+
+**What it tests:** whether the large early gradients are the direct cause of
+collapse. If harmful gradients in epochs 0–5 drive the deterioration, freezing
+should preserve feature geometry. Unfreezing onto a settled projector should
+then produce healthy, informative gradients.
+
+**Decision outcomes:**
+- Features preserved after freeze, healthy gradients after unfreeze →
+  early gradient signal is the culprit; delayed backbone training is a fix
+- Features still collapse after unfreeze → projector/predictor state at
+  epoch K is already degenerate regardless; problem is elsewhere
+
+---
+
+### Experiment 2 — Track projector output metrics alongside backbone
+
+**Implementation:** extend `scripts/diagnose_pretraining.py` to also compute
+uniformity and effective rank of the projector output z (extracted by running
+backbone + projector, stopping before the predictor) at each checkpoint.
+Plot both backbone and projector metrics on the same axes.
+
+**What it tests:** whether the projector collapses first and pulls the backbone
+with it, or whether the backbone loses diversity independently.
+
+**Decision outcomes:**
+- Projector output collapses before backbone → projector is learning to map
+  diverse inputs to a degenerate subspace and dragging the backbone along;
+  slowing the projector (experiment 3) is the right lever
+- Backbone collapses first or simultaneously → backbone is directly learning
+  augmentation invariance; stronger augmentations (experiment 4) is the lever
+
+---
+
+### Experiment 3 — Separate LRs: slow projector/predictor, keep backbone LR
+
+**Implementation:** split the optimizer into two parameter groups —
+backbone at the standard LR (3.9e-4), projector + predictor at a much lower
+LR (e.g. 1e-5). Everything else unchanged.
+
+**What it tests:** whether projector convergence speed is the controlling
+variable. If slowing the projector delays the snap and keeps backbone gradients
+informative for longer, this confirms the "fast projector, harmful backbone
+gradients" hypothesis.
+
+**Decision outcomes:**
+- Snap delayed, backbone gradients sustained, better diagnostic metrics →
+  projector speed is the lever; separate LRs are a viable fix
+- Snap still happens at the same epoch → projector LR is not the bottleneck;
+  augmentation difficulty or a different mechanism is driving collapse
+
+---
+
+### Experiment 4 — Stronger augmentations
+
+**Implementation:** increase augmentation intensity in
+`pretrain/augmentations.py` — more aggressive random cropping, stronger
+intensity noise, larger rotation range. Run the same N=1000 setup and compare
+diagnostic curves against the baseline.
+
+**What it tests:** whether the pretext task being too easy (weak augmentations
+producing near-identical views) allows the projector to trivially collapse.
+If harder views require the backbone to preserve discriminative structure to
+solve the task, collapse should be delayed or prevented.
+
+**Decision outcomes:**
+- Collapse delayed or absent, backbone gradients sustained → augmentation
+  difficulty is the primary driver; this is the highest-leverage practical fix
+- Collapse timing unchanged → augmentations are not the bottleneck; the
+  problem is intrinsic to the small-batch / pretrained-backbone dynamics
+
+---
+
 ## Full experiments  ← next
 
 **Before submitting pretraining:** update both configs to `use_pre_vq: true`
