@@ -20,7 +20,7 @@ EPOCHS="${EPOCHS:-300}"
 SEEDS="${SEEDS:-5}"
 NS="${NS:-30,100,300,1000,all}"
 
-PROJECT_DIR="/home/nlr950/Dir/quantized_ft"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_lcurve  job=${SLURM_JOB_ID}  node=$(hostname) ==="

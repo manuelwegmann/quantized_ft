@@ -11,7 +11,7 @@
 # Extract features for ALL on-disk scans for pretrained ViT, random ViT, random CNN.
 # Output: runs/feature_cache_full/
 
-PROJECT_DIR="/home/nlr950/Dir/quantized_ft"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_cache_all  job=${SLURM_JOB_ID}  node=$(hostname) ==="

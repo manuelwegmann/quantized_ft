@@ -24,19 +24,15 @@ from torch.utils.data import DataLoader
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
-sys.path.insert(0, str(Path("/home/nlr950/Dir/CT-CLIP/transformer_maskgit")))
-sys.path.insert(0, str(Path("/home/nlr950/Dir/CT-CLIP/CT_CLIP")))
 sys.path.insert(0, str(Path(__file__).parent))
+
+import paths  # noqa: E402 — registers CT-CLIP packages on sys.path
 
 from models.backbone import CTViTBackbone
 from models.quantization import quantized_forward
 from cache_all_features import AllScansDataset
 
-CHECKPOINT   = "/home/nlr950/Dir/CT-CLIP/checkpoints/CT-CLIP_v2.pt"
-DATA_FOLDER  = "/home/nlr950/Dir/CT-CLIP/data/merlin_data"
-REPORTS_FILE = "/home/nlr950/Dir/CT-CLIP/data/reports_final.xlsx"
-LABELS_FILE  = "/home/nlr950/Dir/CT-CLIP/data/zero_shot_findings_disease_cls.csv"
-META_FILE    = "/home/nlr950/Dir/CT-CLIP/data/metadata.csv"
+from paths import CHECKPOINT, DATA_FOLDER, REPORTS_FILE, LABELS_FILE, META_FILE
 CACHE_DIR    = _PROJECT_ROOT / "runs" / "feature_cache_full"
 
 QUANT_CONFIGS = [(8, 8), (4, 8), (4, 4), (2, 4)]  # (w_bits, a_bits)

@@ -4,13 +4,12 @@ import torch.nn as nn
 from pathlib import Path
 from typing import Optional
 
-_CT_CLIP_ROOT = Path("/home/nlr950/Dir/CT-CLIP")
-for _p in [
-    str(_CT_CLIP_ROOT / "transformer_maskgit"),
-    str(_CT_CLIP_ROOT / "CT_CLIP"),
-]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+# Ensure project root is importable so paths.py can be found
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from paths import CT_CLIP_ROOT as _CT_CLIP_ROOT  # noqa: E402 — also registers CT-CLIP on sys.path
 
 from transformer_maskgit.ctvit import CTViT  # noqa: E402
 

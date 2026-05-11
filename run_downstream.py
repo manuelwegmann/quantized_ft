@@ -18,6 +18,8 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import paths  # noqa: E402 — registers CT-CLIP packages on sys.path
+
 from downstream.dataset import MerlinDataset
 from downstream.evaluate import evaluate
 from downstream.trainer import train
@@ -41,7 +43,7 @@ def main():
     args = parse_args()
 
     with open(args.config) as f:
-        cfg = yaml.safe_load(f)
+        cfg = yaml.safe_load(os.path.expandvars(f.read()))
 
     if args.pretrain_checkpoint:
         cfg["pretrain_checkpoint"] = args.pretrain_checkpoint

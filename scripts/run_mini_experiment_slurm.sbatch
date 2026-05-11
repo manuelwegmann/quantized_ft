@@ -66,7 +66,7 @@ NUM_WORKERS_EVAL="${NUM_WORKERS_EVAL:-2}"
 PHASE="${PHASE:-all}"
 OUTPUT_DIR="${OUTPUT_DIR:-runs/mini_experiment_${NORM}}"
 
-PROJECT_DIR="/home/nlr950/Dir/quantized_ft"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_mini  job=${SLURM_JOB_ID}  node=$(hostname) ==="

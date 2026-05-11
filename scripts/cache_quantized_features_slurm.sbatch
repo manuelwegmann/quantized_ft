@@ -14,7 +14,7 @@
 # Usage:
 #   sbatch scripts/cache_quantized_features_slurm.sbatch
 
-PROJECT_DIR="/home/nlr950/Dir/quantized_ft"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_cache_quant  job=${SLURM_JOB_ID}  node=$(hostname) ==="

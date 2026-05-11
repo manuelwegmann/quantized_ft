@@ -16,6 +16,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import paths  # noqa: E402 — registers CT-CLIP packages on sys.path
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -126,9 +128,9 @@ def main():
     parser.add_argument("--n_scans", type=int, default=3)
     parser.add_argument("--out", default="plots/aug_vis.pdf")
     parser.add_argument("--data_folder",
-                        default="/home/nlr950/Dir/CT-CLIP/data/merlin_data")
+                        default=str(paths.DATA_FOLDER))
     parser.add_argument("--meta_file",
-                        default="/home/nlr950/Dir/CT-CLIP/data/metadata.csv")
+                        default=str(paths.META_FILE))
     args = parser.parse_args()
 
     aug = CTAugmentation()

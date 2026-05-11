@@ -2,13 +2,13 @@ mode: ssql
 use_aux_loss: true    # L_ssql + L_fp  (SSQL paper Table 8, row i)
 
 backbone:
-  checkpoint: /home/nlr950/Dir/CT-CLIP/checkpoints/CT-CLIP_v2.pt
+  checkpoint: ${CT_CLIP_ROOT}/checkpoints/CT-CLIP_v2.pt
   use_pre_vq: false
 
 data:
-  data_folder:  /home/nlr950/Dir/CT-CLIP/data/merlin_data
-  reports_file: /home/nlr950/Dir/CT-CLIP/data/reports_final.xlsx
-  meta_file:    /home/nlr950/Dir/CT-CLIP/data/metadata.csv
+  data_folder:  ${CT_CLIP_ROOT}/data/merlin_data
+  reports_file: ${CT_CLIP_ROOT}/data/reports_final.xlsx
+  meta_file:    ${CT_CLIP_ROOT}/data/metadata.csv
 
 augmentation:
   crop_ratio:       0.85
@@ -42,4 +42,4 @@ predictor:
   hidden_dim: 512
   out_dim:    2048
 
-output_dir: /home/nlr950/Dir/quantized_ft/runs/pretrain_ssql
+output_dir: ${QFT_ROOT}/runs/pretrain_ssql

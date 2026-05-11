@@ -17,8 +17,8 @@ CONFIG="${CONFIG:-configs/downstream.yaml}"
 PRETRAIN_CKPT="${PRETRAIN_CKPT:-}"
 MAX_SAMPLES="${MAX_SAMPLES:-}"
 
-PROJECT_DIR="/home/nlr950/Dir/quantized_ft"
-VENV="/home/nlr950/Dir/quantized_ft/venv"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_downstream  job=${SLURM_JOB_ID}  node=$(hostname) ==="
 echo "CONFIG=${CONFIG}  PRETRAIN_CKPT=${PRETRAIN_CKPT}  MAX_SAMPLES=${MAX_SAMPLES}"

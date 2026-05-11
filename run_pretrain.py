@@ -19,6 +19,8 @@ from torch.utils.data import DataLoader
 # Make quantized_ft/ importable regardless of working directory
 sys.path.insert(0, str(Path(__file__).parent))
 
+import paths  # noqa: E402 — registers CT-CLIP packages on sys.path
+
 from models.backbone import CTViTBackbone
 from models.simsiam import Projector, Predictor
 from pretrain.augmentations import CTAugmentation
@@ -42,7 +44,7 @@ def main():
     args = parse_args()
 
     with open(args.config) as f:
-        cfg = yaml.safe_load(f)
+        cfg = yaml.safe_load(os.path.expandvars(f.read()))
 
     if args.max_samples is not None:
         os.environ["CT_CLIP_MAX_SAMPLES"] = str(args.max_samples)

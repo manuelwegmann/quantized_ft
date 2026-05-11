@@ -14,7 +14,7 @@
 
 MODE="${MODE:-both}"
 
-PROJECT_DIR="/home/nlr950/Dir/quantized_ft"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_step  job=${SLURM_JOB_ID}  node=$(hostname) ==="
