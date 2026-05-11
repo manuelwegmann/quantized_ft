@@ -97,6 +97,65 @@ sbatch --export=ALL,PRETRAIN_CKPT=runs/pretrain_fp/checkpoint_final.pt \
        scripts/run_downstream_slurm.sbatch
 ```
 
+## Cluster benchmarking
+
+Two benchmarks for comparing GPU compute and storage speed across clusters.
+Both are designed to be lightweight and produce directly comparable numbers.
+
+### GPU compute throughput (synthetic data)
+
+Measures raw forward+backward speed using random tensors — no real data or
+checkpoint needed. Run on each cluster you want to compare.
+
+**Gefion** (1 / 2 / 4 / 8 H100s):
+```bash
+bash scripts/submit_benchmark.sh
+```
+
+**Old cluster** (1 A100):
+```bash
+sbatch scripts/benchmark_slurm_oldcluster.sbatch
+```
+
+### Data loading throughput (real scans)
+
+Measures the full preprocessing pipeline (NIfTI load → resize → augment)
+from disk, sweeping `num_workers` 1 → 4 → 8 → 16. Uses a fixed 50-scan
+subset so results are identical in scope across clusters.
+
+**Gefion:**
+```bash
+sbatch scripts/benchmark_dataloader_slurm.sbatch
+```
+
+**Old cluster:**
+```bash
+sbatch scripts/benchmark_dataloader_slurm_oldcluster.sbatch
+```
+
+The data path defaults are already set correctly in each script. Both scripts
+use identical `--max_files`, `--warmup_batches`, `--timed_batches`, and
+`--num_workers` so the numbers can be compared directly.
+
+### Reading the results
+
+Each job writes a log file named `<job-name>-<job-id>.out`. Look for the
+`===` summary block at the end:
+
+```
+====================================================
+  GPU type       : NVIDIA H100 80GB HBM3
+  GPU count      : 4
+  ms / step      : 2340 ms
+  Throughput     : 0.034 samples/sec  (all GPUs)
+  Per-GPU        : 0.009 samples/sec
+====================================================
+```
+
+For the dataloader benchmark, the table at the end shows the best
+`num_workers` setting — use that value in the training configs when running
+full pretraining on that cluster.
+
 ## Path configuration
 
 All hardcoded paths have been removed. Path resolution happens in `paths.py`:
