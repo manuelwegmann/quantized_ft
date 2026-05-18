@@ -13,7 +13,7 @@
 
 N_SCANS="${N_SCANS:-5}"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_DIR="${SLURM_SUBMIT_DIR}"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_extract  job=${SLURM_JOB_ID}  node=$(hostname) ==="

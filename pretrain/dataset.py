@@ -171,14 +171,18 @@ class CTPretrainDataset(Dataset):
 
     def _prepare_samples(self) -> list:
         root = Path(self.data_folder)
+        all_files = sorted(root.rglob("*.nii.gz"))
+        total = self.max_samples or len(all_files)
         samples = []
-        for nii_file in tqdm.tqdm(sorted(root.rglob("*.nii.gz")), desc="indexing scans"):
-            name = _normalize_name(nii_file.name)
-            if name not in self._valid_accessions:
-                continue
-            samples.append(str(nii_file))
-            if self.max_samples and len(samples) >= self.max_samples:
-                break
+        with tqdm.tqdm(total=total, desc="indexing scans") as pbar:
+            for nii_file in all_files:
+                name = _normalize_name(nii_file.name)
+                if name not in self._valid_accessions:
+                    continue
+                samples.append(str(nii_file))
+                pbar.update(1)
+                if self.max_samples and len(samples) >= self.max_samples:
+                    break
         return samples
 
     # ------------------------------------------------------------------

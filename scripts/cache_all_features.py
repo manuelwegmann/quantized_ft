@@ -12,7 +12,7 @@ Output layout:
     labels.pt                [N, 30] float32  (-1 = not mentioned in CSV)
     pretrained/feats.pt      [N, 512]
     random/feats.pt          [N, 512]
-    random_cnn/feats.pt      [N, 256]
+    random_cnn/feats.pt      [N, 512]
 
 Usage:
     python scripts/cache_all_features.py

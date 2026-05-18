@@ -15,7 +15,7 @@
 EPOCHS="${EPOCHS:-100}"
 MAX_SAMPLES="${MAX_SAMPLES:-}"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_DIR="${SLURM_SUBMIT_DIR}"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_sanity  job=${SLURM_JOB_ID}  node=$(hostname) ==="

@@ -16,7 +16,7 @@
 CONFIG="${CONFIG:-configs/pretrain_fp.yaml}"
 MAX_SAMPLES="${MAX_SAMPLES:-}"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_DIR="${SLURM_SUBMIT_DIR}"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_pretrain  job=${SLURM_JOB_ID}  node=$(hostname) ==="

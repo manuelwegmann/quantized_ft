@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -83,21 +82,30 @@ def make_fig1():
         "Atelectasis", "No Gallbladder", "Renal Cyst",
         "Pleural Effusion", "Cardiomegaly", "Gallstones",
     ]
+
+    # Reported per-condition AUROC from Blankemeier et al. (Merlin), same condition order.
+    MERLIN_AUROC = np.array([0.72, 0.93, 0.61, 0.80, 0.81, 0.75])
+
+    # (backbone_key, label, color, hardcoded_means_or_None)
     bar_specs = [
-        ("pretrained_pre_vq", "CT-CLIP (pre-VQ)",  C["ct_clip"]),
-        ("pretrained",        "CT-CLIP (post-VQ)", "#5BA3D9"),
-        ("random",            "Random ViT",         C["random"]),
-        ("random_cnn",        "Random CNN",         C["cnn"]),
+        (None,                "Merlin VLM",        "#FF6B35",   MERLIN_AUROC),
+        ("pretrained_pre_vq", "CT-CLIP (pre-VQ)",  C["ct_clip"], None),
+        ("pretrained",        "CT-CLIP (post-VQ)", "#5BA3D9",    None),
+        ("random",            "Random ViT",         C["random"],  None),
+        ("random_cnn",        "Random CNN",         C["cnn"],     None),
     ]
     n_bb    = len(bar_specs)
     x       = np.arange(len(conditions))
-    width   = 0.20
+    width   = 0.16
     offsets = np.linspace(-(n_bb - 1) / 2, (n_bb - 1) / 2, n_bb) * width
 
-    fig, ax = plt.subplots(figsize=(11, 5))
+    fig, ax = plt.subplots(figsize=(12, 5))
 
-    for (bb, label, color), offset in zip(bar_specs, offsets):
-        means, _, _ = per_condition_auroc_at_maxn(results, conditions, bb)
+    for (bb, label, color, hardcoded), offset in zip(bar_specs, offsets):
+        if hardcoded is not None:
+            means = hardcoded
+        else:
+            means, _, _ = per_condition_auroc_at_maxn(results, conditions, bb)
         ax.bar(x + offset, means, width, label=label, color=color, alpha=0.88, zorder=3)
 
     # annotate each condition with its max N
@@ -112,12 +120,11 @@ def make_fig1():
     ax.set_title("Zero-shot linear probing on Merlin abdominal CT (N = max per condition)",
                  fontsize=13)
     ax.legend(fontsize=10, framealpha=0.9)
-    ax.set_ylim(0.35, 0.95)
+    ax.set_ylim(0.35, 0.98)
     ax.grid(True, alpha=0.25, axis="y")
 
     fig.tight_layout()
-    for ext in ("pdf", "png"):
-        fig.savefig(OUT / f"fig1_zeroshot.{ext}", dpi=150, bbox_inches="tight")
+    fig.savefig(OUT / "fig1_zeroshot.pdf", bbox_inches="tight")
     plt.close(fig)
     print("Saved fig1_zeroshot")
 
@@ -158,168 +165,17 @@ def make_fig2():
     fig.suptitle("FP SimSiam pretraining dynamics (N=1000, bs=2, LN, cosine LR)",
                  fontsize=13, y=1.01)
     fig.tight_layout()
-    for ext in ("pdf", "png"):
-        fig.savefig(OUT / f"fig2_collapse.{ext}", dpi=150, bbox_inches="tight")
+    fig.savefig(OUT / "fig2_collapse.pdf", bbox_inches="tight")
     plt.close(fig)
     print("Saved fig2_collapse")
 
 
 # ---------------------------------------------------------------------------
-# Figure 3 – SSQL vs FP quantization retention
-# ---------------------------------------------------------------------------
-def make_fig3():
-    probe = load(RUNS / "mini_experiment_ln/probe_results.json")
-    quant = load(RUNS / "quant_probe/results.json")
-    conditions = probe["conditions"]  # same 6 conditions in both files
-
-    def maxn_auroc(results, backbone):
-        """Macro-mean across all conditions, each at its own max N."""
-        m, s, _ = per_condition_auroc_at_maxn(results, conditions, backbone)
-        valid = m[~np.isnan(m)]
-        return float(np.mean(valid)), float(np.std(valid))
-
-    # Each entry: (label, FP mean, FP std, W4A4 mean, W4A4 std, color_fp, color_q)
-    rows = []
-
-    ct_fp_m,   ct_fp_s   = maxn_auroc(quant["results"],  "pretrained_pre_vq")
-    ct_q_m,    ct_q_s    = maxn_auroc(quant["results"],  "pretrained_pre_vq_w4a4")
-    rows.append(("CT-CLIP\n(original)",      ct_fp_m,  ct_fp_s,  ct_q_m,  ct_q_s,
-                 C["ct_clip"], "#92C5DE"))
-
-    fp_fp_m,   fp_fp_s   = maxn_auroc(probe["results"], "fp")
-    fp_q_m,    fp_q_s    = maxn_auroc(probe["results"], "fp_w4a4")
-    rows.append(("FP SimSiam\n(N=300, 40ep)", fp_fp_m, fp_fp_s, fp_q_m, fp_q_s,
-                 C["fp"], C["fp_q"]))
-
-    ssql_fp_m, ssql_fp_s = maxn_auroc(probe["results"], "ssql")
-    ssql_q_m,  ssql_q_s  = maxn_auroc(probe["results"], "ssql_w4a4")
-    rows.append(("SSQL SimSiam\n(N=300, 40ep)", ssql_fp_m, ssql_fp_s, ssql_q_m, ssql_q_s,
-                 C["ssql"], C["ssql_q"]))
-
-    fig, ax = plt.subplots(figsize=(8.5, 5))
-    x      = np.arange(len(rows))
-    width  = 0.32
-
-    for i, (label, fp_m, fp_s, q_m, q_s, col_fp, col_q) in enumerate(rows):
-        ax.bar(x[i] - width / 2, fp_m, width, color=col_fp, yerr=fp_s,
-               capsize=4, alpha=0.9, zorder=3, label="Full precision" if i == 0 else "")
-        ax.bar(x[i] + width / 2, q_m,  width, color=col_q,  yerr=q_s,
-               capsize=4, alpha=0.9, zorder=3, hatch="///",
-               label="W4A4 quantized" if i == 0 else "")
-
-        # annotate drop
-        if not (np.isnan(fp_m) or np.isnan(q_m)):
-            drop      = (fp_m - q_m) * 100
-            retention = q_m / fp_m * 100
-            ax.annotate(
-                f"−{drop:.1f} pp\n({retention:.0f}% ret.)",
-                xy=(x[i] + width / 2, q_m),
-                xytext=(x[i] + width / 2, q_m - 0.055),
-                ha="center", fontsize=9, color="#333333",
-            )
-
-    ax.axhline(0.5, color="gray", lw=0.8, ls=":", zorder=1)
-    ax.set_xticks(x)
-    ax.set_xticklabels([r[0] for r in rows], fontsize=11)
-    ax.set_ylabel("Macro-mean AUROC (6 conditions, each at max N)", fontsize=11)
-    ax.set_title("Quantization robustness: SSQL vs FP SimSiam (W4A4)", fontsize=13)
-    ax.set_ylim(0.38, 0.75)
-    ax.legend(fontsize=10, framealpha=0.9)
-    ax.grid(True, alpha=0.25, axis="y")
-
-    fig.tight_layout()
-    for ext in ("pdf", "png"):
-        fig.savefig(OUT / f"fig3_ssql_vs_fp.{ext}", dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print("Saved fig3_ssql_vs_fp")
-
-
-# ---------------------------------------------------------------------------
-# Figure 4 – Quantization degradation curve (original CT-CLIP)
-# ---------------------------------------------------------------------------
-def make_fig4():
-    quant      = load(RUNS / "quant_probe/results.json")
-    conditions = quant["conditions"]
-
-    bb_specs = [
-        ("pretrained_pre_vq",      "FP",   C["ct_clip"], "o-"),
-        ("pretrained_pre_vq_w8a8", "W8A8", "#4393C3",    "s-"),
-        ("pretrained_pre_vq_w4a8", "W4A8", "#74ADD1",    "^-"),
-        ("pretrained_pre_vq_w4a4", "W4A4", "#F46D43",    "D-"),
-        ("pretrained_pre_vq_w2a4", "W2A4", "#D73027",    "v-"),
-    ]
-
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.8))
-
-    # --- Panel A: macro-mean AUROC at N=100 and N=300 (consistent across conditions) ---
-    ax = axes[0]
-    ns_consistent = [100, 300]
-    for bb, label, color, style in bb_specs:
-        means = [macro_auroc(quant["results"], bb, n)[0] for n in ns_consistent]
-        stds  = [macro_auroc(quant["results"], bb, n)[1] for n in ns_consistent]
-        means, stds = np.array(means), np.array(stds)
-        ax.plot(ns_consistent, means, style, color=color, label=label,
-                lw=2.2, markersize=7, zorder=3)
-        ax.fill_between(ns_consistent, means - stds, means + stds,
-                        color=color, alpha=0.10)
-
-    ax.axhline(0.5, color="gray", lw=0.8, ls=":", zorder=1)
-    ax.set_xticks(ns_consistent)
-    ax.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
-    ax.set_xlabel("Training samples N", fontsize=12)
-    ax.set_ylabel("Macro-mean AUROC (6 conditions)", fontsize=12)
-    ax.set_title("A  Learning curves by quantization level", fontsize=13, fontweight="bold")
-    ax.legend(fontsize=10, framealpha=0.9)
-    ax.set_ylim(0.45, 0.75)
-    ax.grid(True, alpha=0.25)
-
-    # --- Panel B: degradation at max N per condition ---
-    ax = axes[1]
-    means_by_bb = []
-    stds_by_bb  = []
-    labels_bb   = []
-    for bb, label, color, _ in bb_specs:
-        m, s, _ = per_condition_auroc_at_maxn(quant["results"], conditions, bb)
-        means_by_bb.append(float(np.mean(m[~np.isnan(m)])))
-        stds_by_bb.append(float(np.std(m[~np.isnan(m)])))
-        labels_bb.append(label)
-
-    colors_bb = [s[2] for s in bb_specs]
-    x = np.arange(len(bb_specs))
-    ax.bar(x, means_by_bb, color=colors_bb, yerr=stds_by_bb, capsize=4,
-           alpha=0.85, zorder=3, width=0.55)
-    # annotate drop from FP
-    fp_val = means_by_bb[0]
-    for i in range(1, len(means_by_bb)):
-        drop = (fp_val - means_by_bb[i]) * 100
-        ax.annotate(f"−{drop:.1f}pp",
-                    xy=(x[i], means_by_bb[i]),
-                    xytext=(x[i], means_by_bb[i] - 0.025),
-                    ha="center", fontsize=9, color="#333333")
-
-    ax.axhline(fp_val, color=C["ct_clip"], lw=1, ls="--", alpha=0.5, label="FP baseline")
-    ax.axhline(0.5, color="gray", lw=0.8, ls=":", zorder=1)
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels_bb, fontsize=11)
-    ax.set_ylabel("Macro-mean AUROC (6 conditions, max N)", fontsize=11)
-    ax.set_title("B  Degradation vs FP (max N per condition)", fontsize=13, fontweight="bold")
-    ax.legend(fontsize=9, framealpha=0.9)
-    ax.set_ylim(0.38, 0.70)
-    ax.grid(True, alpha=0.25, axis="y")
-
-    fig.suptitle("CT-CLIP post-training quantization (PTQ) sensitivity", fontsize=13, y=1.01)
-    fig.tight_layout()
-    for ext in ("pdf", "png"):
-        fig.savefig(OUT / f"fig4_quant_degradation.{ext}", dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print("Saved fig4_quant_degradation")
-
-
-# ---------------------------------------------------------------------------
-# Figures 5a/b/c – Per-condition comparison: FP vs SSQL (from job 3213)
+# Figures 5a/b/c – Per-condition comparison: CT-CLIP, FP SimSiam, SSQL SimSiam
 # ---------------------------------------------------------------------------
 def make_fig5():
     probe = load(RUNS / "mini_experiment_ln/probe_results.json")
+    quant = load(RUNS / "quant_probe/results.json")
     conditions = probe["conditions"]
 
     cond_labels = [
@@ -327,76 +183,93 @@ def make_fig5():
         "Pleural Effusion", "Cardiomegaly", "Gallstones",
     ]
 
-    # Read per-condition AUROC at max N (no error bars as requested)
     def maxn_mean(results, backbone):
         means, _, _ = per_condition_auroc_at_maxn(results, conditions, backbone)
         return means
 
-    fp       = maxn_mean(probe["results"], "fp")
-    fp_w4a4  = maxn_mean(probe["results"], "fp_w4a4")
-    ssql     = maxn_mean(probe["results"], "ssql")
-    ssql_q   = maxn_mean(probe["results"], "ssql_w4a4")
+    # Full-precision features
+    ct_fp    = maxn_mean(quant["results"],  "pretrained_pre_vq")
+    fp       = maxn_mean(probe["results"],  "fp")
+    ssql     = maxn_mean(probe["results"],  "ssql")
 
-    x      = np.arange(len(conditions))
-    width  = 0.35
-    kwargs = dict(width=width, alpha=0.88, zorder=3)
+    # W8A8 quantized (only available for CT-CLIP in current data)
+    ct_w8a8  = maxn_mean(quant["results"],  "pretrained_pre_vq_w8a8")
+
+    # W4A4 quantized
+    ct_w4a4  = maxn_mean(quant["results"],  "pretrained_pre_vq_w4a4")
+    fp_w4a4  = maxn_mean(probe["results"],  "fp_w4a4")
+    ssql_q   = maxn_mean(probe["results"],  "ssql_w4a4")
+
+    x = np.arange(len(conditions))
 
     # --- Figure 5a: Full-precision AUROC per condition ---
-    fig, ax = plt.subplots(figsize=(9, 4.5))
-    ax.bar(x - width / 2, fp,   color=C["fp"],   label="FP SimSiam",   **kwargs)
-    ax.bar(x + width / 2, ssql, color=C["ssql"], label="SSQL SimSiam", **kwargs)
+    width  = 0.25
+    offsets_3 = np.array([-1, 0, 1]) * width
+    kwargs = dict(width=width, alpha=0.88, zorder=3)
+
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    ax.bar(x + offsets_3[0], ct_fp, color=C["ct_clip"], label="CT-CLIP (original)", **kwargs)
+    ax.bar(x + offsets_3[1], fp,    color=C["fp"],      label="FP SimSiam",         **kwargs)
+    ax.bar(x + offsets_3[2], ssql,  color=C["ssql"],    label="SSQL SimSiam",       **kwargs)
     ax.axhline(0.5, color="gray", lw=0.8, ls=":", zorder=1)
     ax.set_xticks(x)
     ax.set_xticklabels(cond_labels, rotation=25, ha="right", fontsize=10)
     ax.set_ylabel("AUROC", fontsize=12)
-    ax.set_ylim(0.4, 0.82)
-    ax.set_title("FP SimSiam vs SSQL SimSiam — full precision (N = max per condition)",
-                 fontsize=12)
-    ax.legend(fontsize=11, framealpha=0.9)
+    ax.set_ylim(0.4, 0.85)
+    ax.set_title("Full-precision AUROC per condition (N = max per condition)", fontsize=12)
+    ax.legend(fontsize=10, framealpha=0.9)
     ax.grid(True, alpha=0.25, axis="y")
     fig.tight_layout()
-    for ext in ("pdf", "png"):
-        fig.savefig(OUT / f"fig5a_fp_comparison.{ext}", dpi=150, bbox_inches="tight")
+    fig.savefig(OUT / "fig5a_fp_comparison.pdf", bbox_inches="tight")
     plt.close(fig)
     print("Saved fig5a_fp_comparison")
 
-    # --- Figure 5b: W4A4 AUROC per condition ---
-    fig, ax = plt.subplots(figsize=(9, 4.5))
-    ax.bar(x - width / 2, fp_w4a4, color=C["fp_q"],   label="FP SimSiam W4A4",   **kwargs)
-    ax.bar(x + width / 2, ssql_q,  color=C["ssql_q"], label="SSQL SimSiam W4A4", **kwargs)
+    # --- Figure 5b: W8A8 and W4A4 AUROC per condition ---
+    # CT-CLIP has both W8A8 and W4A4; SimSiam models have W4A4 only (W8A8 pending).
+    width  = 0.18
+    offsets_4 = np.array([-1.5, -0.5, 0.5, 1.5]) * width
+    kwargs4 = dict(width=width, alpha=0.88, zorder=3)
+
+    fig, ax = plt.subplots(figsize=(11, 4.5))
+    ax.bar(x + offsets_4[0], ct_w8a8, color="#4393C3",    label="CT-CLIP W8A8",       **kwargs4)
+    ax.bar(x + offsets_4[1], ct_w4a4, color="#F46D43",    label="CT-CLIP W4A4",       **kwargs4)
+    ax.bar(x + offsets_4[2], fp_w4a4, color=C["fp_q"],    label="FP SimSiam W4A4",    **kwargs4)
+    ax.bar(x + offsets_4[3], ssql_q,  color=C["ssql_q"],  label="SSQL SimSiam W4A4",  **kwargs4)
     ax.axhline(0.5, color="gray", lw=0.8, ls=":", zorder=1)
     ax.set_xticks(x)
     ax.set_xticklabels(cond_labels, rotation=25, ha="right", fontsize=10)
     ax.set_ylabel("AUROC", fontsize=12)
     ax.set_ylim(0.4, 0.82)
-    ax.set_title("FP SimSiam vs SSQL SimSiam — W4A4 quantized (N = max per condition)",
+    ax.set_title("Quantized AUROC per condition — W8A8 and W4A4 (N = max per condition)",
                  fontsize=12)
-    ax.legend(fontsize=11, framealpha=0.9)
+    ax.legend(fontsize=9, framealpha=0.9)
     ax.grid(True, alpha=0.25, axis="y")
     fig.tight_layout()
-    for ext in ("pdf", "png"):
-        fig.savefig(OUT / f"fig5b_w4a4_comparison.{ext}", dpi=150, bbox_inches="tight")
+    fig.savefig(OUT / "fig5b_quantized_comparison.pdf", bbox_inches="tight")
     plt.close(fig)
-    print("Saved fig5b_w4a4_comparison")
+    print("Saved fig5b_quantized_comparison")
 
     # --- Figure 5c: % AUROC change due to W4A4 quantization ---
-    pct_fp   = (fp_w4a4 - fp)   / fp   * 100
-    pct_ssql = (ssql_q  - ssql) / ssql * 100
+    pct_ct   = (ct_w4a4 - ct_fp) / ct_fp * 100
+    pct_fp   = (fp_w4a4 - fp)    / fp    * 100
+    pct_ssql = (ssql_q  - ssql)  / ssql  * 100
 
-    fig, ax = plt.subplots(figsize=(9, 4.5))
-    ax.bar(x - width / 2, pct_fp,   color=C["fp"],   label="FP SimSiam",   **kwargs)
-    ax.bar(x + width / 2, pct_ssql, color=C["ssql"], label="SSQL SimSiam", **kwargs)
+    width  = 0.25
+    kwargs = dict(width=width, alpha=0.88, zorder=3)
+
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    ax.bar(x + offsets_3[0], pct_ct,   color=C["ct_clip"], label="CT-CLIP (original)", **kwargs)
+    ax.bar(x + offsets_3[1], pct_fp,   color=C["fp"],      label="FP SimSiam",         **kwargs)
+    ax.bar(x + offsets_3[2], pct_ssql, color=C["ssql"],    label="SSQL SimSiam",       **kwargs)
     ax.axhline(0, color="gray", lw=1.0, ls="-", zorder=1)
     ax.set_xticks(x)
     ax.set_xticklabels(cond_labels, rotation=25, ha="right", fontsize=10)
     ax.set_ylabel("AUROC change due to W4A4 (%)", fontsize=12)
-    ax.set_title("Quantization degradation per condition: FP SimSiam vs SSQL SimSiam",
-                 fontsize=12)
-    ax.legend(fontsize=11, framealpha=0.9)
+    ax.set_title("W4A4 quantization degradation per condition", fontsize=12)
+    ax.legend(fontsize=10, framealpha=0.9)
     ax.grid(True, alpha=0.25, axis="y")
     fig.tight_layout()
-    for ext in ("pdf", "png"):
-        fig.savefig(OUT / f"fig5c_quant_change.{ext}", dpi=150, bbox_inches="tight")
+    fig.savefig(OUT / "fig5c_quant_change.pdf", bbox_inches="tight")
     plt.close(fig)
     print("Saved fig5c_quant_change")
 
@@ -404,7 +277,5 @@ def make_fig5():
 if __name__ == "__main__":
     make_fig1()
     make_fig2()
-    make_fig3()
-    make_fig4()
     make_fig5()
     print(f"\nAll figures saved to {OUT}/")

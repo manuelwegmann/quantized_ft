@@ -66,7 +66,7 @@ NUM_WORKERS_EVAL="${NUM_WORKERS_EVAL:-2}"
 PHASE="${PHASE:-all}"
 OUTPUT_DIR="${OUTPUT_DIR:-runs/mini_experiment_${NORM}}"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_DIR="${SLURM_SUBMIT_DIR}"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_mini  job=${SLURM_JOB_ID}  node=$(hostname) ==="

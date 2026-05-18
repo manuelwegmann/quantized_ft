@@ -1,0 +1,18 @@
+Cluster GPU Benchmark Results
+==============================
+Workload: SimSiam forward+backward, synthetic CT volumes, batch=2, depth=240, 480x480
+         1500 steps x 2 samples/step = 3000 samples total (fixed across all runs)
+         No augmentations — pure model compute (backbone + projector + predictor + loss + backward)
+
+Setup                        | Total Elapsed (s) | Throughput (samples/sec)
+-----------------------------|-------------------|-------------------------
+DIKU cluster  — 1x A100 40GB |            1542.0 |                    1.95
+Gefion        — 1x H100 80GB |             609.0 |                    4.93
+Gefion        — 2x H100 80GB |             308.0 |                    9.74
+Gefion        — 4x H100 80GB |             155.0 |                   19.41
+Gefion        — 8x H100 80GB |              77.0 |                   38.86
+
+Notes
+-----
+- H100 vs A100 (single GPU): 4.93 / 1.95 = 2.53x speedup per GPU
+- Multi-GPU scaling on Gefion (vs 1x H100): 2x=1.98x, 4x=3.94x, 8x=7.88x (near-linear)

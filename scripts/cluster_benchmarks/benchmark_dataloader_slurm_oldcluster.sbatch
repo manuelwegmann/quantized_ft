@@ -6,12 +6,12 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH --time=00:45:00
-# No GPU needed — this is a CPU / storage benchmark.
-# Request enough CPUs to cover the highest num_workers you want to test.
 
-DATA_DIR="${DATA_DIR:-/dcai/users/wegman/data/merlin_dataset/merlinabdominalctdataset/merlin_data}"
+# Identical parameters to benchmark_dataloader_slurm.sbatch — only the
+# data path differs so the comparison is apples-to-apples.
+DATA_DIR="${DATA_DIR:-/home/nlr950/Dir/CT-CLIP/data/merlin_data}"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_DIR="/home/nlr950/Dir/quantized_ft"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_bench_dataloader  job=${SLURM_JOB_ID}  node=$(hostname) ==="
@@ -25,9 +25,9 @@ cd "${PROJECT_DIR}"
 
 python scripts/benchmark_dataloader.py \
     --data_dir "${DATA_DIR}" \
-    --max_files 50 \
-    --warmup_batches 2 \
-    --timed_batches 5 \
+    --max_files 500 \
+    --warmup_batches 5 \
+    --timed_batches 50 \
     --num_workers 1 4 8 16
 
 echo "=== done ===" && date

@@ -37,7 +37,7 @@ CACHE_DIR    = _PROJECT_ROOT / "runs" / "feature_cache" / "random_cnn"
 RESULTS_JSON = _PROJECT_ROOT / "runs" / "learning_curve" / "results.json"
 
 SEED         = 42
-CNN_DIM      = 256
+CNN_DIM      = 512
 
 
 # ── model ─────────────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ class RandomCNN3D(nn.Module):
 
     Spatial reduction per layer (stride 4→4→2→2):
       (1, 240, 480, 480) → (32, 60, 120, 120) → (64, 15, 30, 30)
-                         → (128, 8, 15, 15)   → (256, 4, 8, 8) → pool → (256,)
+                         → (128, 8, 15, 15)   → (CNN_DIM, 4, 8, 8) → pool → (CNN_DIM,)
     """
     def __init__(self):
         super().__init__()

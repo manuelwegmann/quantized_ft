@@ -18,7 +18,7 @@ EPOCHS="${EPOCHS:-1000}"
 SEEDS="${SEEDS:-5}"
 NS="${NS:-100,300,all}"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_DIR="${SLURM_SUBMIT_DIR}"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_multicond  job=${SLURM_JOB_ID}  node=$(hostname) ==="

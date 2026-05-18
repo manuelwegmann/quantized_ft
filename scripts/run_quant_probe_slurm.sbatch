@@ -21,7 +21,7 @@ NS="${NS:-100,300,all}"
 BACKBONES="pretrained_pre_vq,pretrained_pre_vq_w8a8,pretrained_pre_vq_w4a8,pretrained_pre_vq_w4a4,pretrained_pre_vq_w2a4"
 OUTPUT_DIR="runs/quant_probe"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_DIR="${SLURM_SUBMIT_DIR}"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_quantprobe  job=${SLURM_JOB_ID}  node=$(hostname) ==="

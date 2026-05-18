@@ -1,0 +1,38 @@
+Dataloader Benchmark Results
+==============================
+Pipeline: NIfTI load from disk → resize to (480 x 480 x 240) → CTAugmentation (random crop,
+          flip, intensity jitter) → two augmented views per scan (view1, view2).
+          Pure CPU + storage benchmark — no GPU involved.
+
+Setup: 500 scans, batch_size=2, warmup=5 batches, timed=50 batches per num_workers setting.
+
+DIKU cluster (local storage, A100 node)
+----------------------------------------
+  workers  |  ms/batch  |  samples/sec
+  ---------|------------|-------------
+        1  |      8286  |        0.241
+        4  |      2019  |        0.990
+        8  |      1109  |        1.803
+       16  |       777  |        2.572
+
+  Best: num_workers=16 → 2.572 samples/sec
+
+Gefion (network storage, H100 node)
+----------------------------------------
+  workers  |  ms/batch  |  samples/sec
+  ---------|------------|-------------
+        1  |     11573  |        0.173
+        4  |      2940  |        0.680
+        8  |      1536  |        1.302
+       16  |       820  |        2.438
+
+  Best: num_workers=16 → 2.438 samples/sec
+
+Notes
+-----
+- Despite faster GPUs, Gefion is slower at data loading at all worker counts.
+  Likely cause: Gefion uses network-attached storage vs local disk on DIKU.
+- At 16 workers: DIKU is 1.05x faster (2.572 vs 2.438 samples/sec)
+- At 1 worker:   DIKU is 1.39x faster (0.241 vs 0.173 samples/sec)
+- Scaling from 1→16 workers: DIKU 10.7x, Gefion 14.1x
+- Storage is the bottleneck for full pretraining on Gefion, not GPU compute.

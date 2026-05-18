@@ -11,7 +11,7 @@
 # Extract features for ALL on-disk scans for pretrained ViT, random ViT, random CNN.
 # Output: runs/feature_cache_full/
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_DIR="${SLURM_SUBMIT_DIR}"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_cache_all  job=${SLURM_JOB_ID}  node=$(hostname) ==="

@@ -6,12 +6,12 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH --time=00:45:00
+# No GPU needed — this is a CPU / storage benchmark.
+# Request enough CPUs to cover the highest num_workers you want to test.
 
-# Identical parameters to benchmark_dataloader_slurm.sbatch — only the
-# data path differs so the comparison is apples-to-apples.
-DATA_DIR="${DATA_DIR:-/home/nlr950/Dir/CT-CLIP/data/merlin_data}"
+DATA_DIR="${DATA_DIR:-/dcai/users/wegman/data/merlin_dataset/merlinabdominalctdataset/merlin_data}"
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_DIR="${SLURM_SUBMIT_DIR}"
 VENV="${PROJECT_DIR}/venv"
 
 echo "=== qft_bench_dataloader  job=${SLURM_JOB_ID}  node=$(hostname) ==="
