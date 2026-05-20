@@ -71,7 +71,7 @@ def _extract(backbone, loader, device, w_bits=None, a_bits=None):
 
 
 def _pretrain_cfg(mode, output_dir, epochs, num_workers, lr, save_every=0, batch_size=2,
-                  freeze_epochs=0):
+                  freeze_epochs=0, use_amp=False, use_flash=False):
     cfg = {
         "mode": mode,
         "use_aux_loss": True,
@@ -83,6 +83,8 @@ def _pretrain_cfg(mode, output_dir, epochs, num_workers, lr, save_every=0, batch
             "save_every": save_every if save_every > 0 else epochs,
             "lr_schedule": "cosine",
             "freeze_epochs": freeze_epochs,
+            "use_amp": use_amp,
+            "use_flash": use_flash,
         },
         "projector":    {"in_dim": 512,  "hidden_dim": 2048, "out_dim": 2048},
         "predictor":    {"in_dim": 2048, "hidden_dim": 512,  "out_dim": 2048},
@@ -180,6 +182,10 @@ def main():
     parser.add_argument("--norm",         default="ln", choices=["bn", "ln"])
     parser.add_argument("--freeze_epochs", type=int, default=0,
                         help="Freeze backbone for this many epochs, then unfreeze. 0 = never frozen.")
+    parser.add_argument("--use_amp",   action="store_true",
+                        help="Enable bfloat16 mixed precision (requires compatible GPU).")
+    parser.add_argument("--use_flash", action="store_true",
+                        help="Enable Flash Attention via F.scaled_dot_product_attention.")
     parser.add_argument("--conditions",   default=rmc.DEFAULT_CONDITIONS)
     parser.add_argument("--output_dir",   default="runs/mini_experiment")
     parser.add_argument("--phase",        default="all",
@@ -249,7 +255,7 @@ def main():
                        _pretrain_cfg("fp", out / "pretrain_fp",
                                      args.epochs, args.num_workers, lr,
                                      args.save_every, args.batch_size,
-                                     args.freeze_epochs),
+                                     args.freeze_epochs, args.use_amp, args.use_flash),
                        device)
         del pretrain_loader
 
@@ -277,7 +283,7 @@ def main():
                        _pretrain_cfg("ssql", out / "pretrain_ssql",
                                      args.epochs, args.num_workers, lr,
                                      args.save_every, args.batch_size,
-                                     args.freeze_epochs),
+                                     args.freeze_epochs, args.use_amp, args.use_flash),
                        device)
         del pretrain_loader
 

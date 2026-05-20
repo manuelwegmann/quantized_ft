@@ -10,15 +10,59 @@ The same function handles both; mode is selected via config['mode'].
 
 import json
 import os
+import types
 from pathlib import Path
 from typing import Dict
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from einops import rearrange, repeat
 from torch.utils.data import DataLoader
 
 from models.quantization import quantized_forward, sample_bits
 from pretrain.loss import negative_cosine_similarity
+
+
+# ---------------------------------------------------------------------------
+# Flash Attention patch
+# ---------------------------------------------------------------------------
+
+def _flash_forward(self, x, mask=None, context=None, attn_bias=None):
+    """Drop-in for Attention.forward using F.scaled_dot_product_attention."""
+    from transformer_maskgit.attention import exists, default, l2norm
+    batch = x.shape[0]
+    if exists(context):
+        context = self.context_norm(context)
+    kv_input = default(context, x)
+    x = self.norm(x)
+    q, k, v = self.to_q(x), *self.to_kv(kv_input).chunk(2, dim=-1)
+    q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.heads), (q, k, v))
+    nk, nv = repeat(self.null_kv, 'h (n r) d -> b h n r d', b=batch, r=2).unbind(dim=-2)
+    k = torch.cat((nk, k), dim=-2)
+    v = torch.cat((nv, v), dim=-2)
+    q, k = map(lambda t: F.normalize(t, dim=-1), (q, k))
+    q = q * self.q_scale
+    k = k * self.k_scale
+    attn_mask = None
+    if exists(attn_bias):
+        attn_mask = F.pad(attn_bias, (self.num_null_kv, 0), value=0.0)
+    out = F.scaled_dot_product_attention(
+        q, k, v, attn_mask=attn_mask, dropout_p=0.0, scale=float(self.scale),
+    )
+    out = rearrange(out, 'b h n d -> b n (h d)')
+    return self.to_out(out)
+
+
+def patch_flash_attention(backbone: nn.Module):
+    """Replace all Attention.forward methods with the memory-efficient Flash variant."""
+    from transformer_maskgit.attention import Attention
+    n = 0
+    for module in backbone.modules():
+        if isinstance(module, Attention):
+            module.forward = types.MethodType(_flash_forward, module)
+            n += 1
+    print(f"[trainer] Flash Attention patched ({n} attention layers)")
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +129,7 @@ def _train_epoch(
     use_aux_loss: bool,
     w_bits_range: tuple,
     a_bits_range: tuple,
+    use_amp: bool = False,
 ) -> tuple[float, float]:
     """Returns (avg_loss, avg_backbone_grad_norm)."""
     backbone.train()
@@ -99,40 +144,41 @@ def _train_epoch(
         x1 = x1.to(device)
         x2 = x2.to(device)
 
-        # Full-precision forward (always computed — used as target in SSQL
-        # and as the training loss in FP mode)
-        z1_fp = projector(backbone(x1))
-        z2_fp = projector(backbone(x2))
-        p1_fp = predictor(z1_fp)
-        p2_fp = predictor(z2_fp)
+        with torch.amp.autocast('cuda', dtype=torch.bfloat16, enabled=use_amp):
+            # Full-precision forward (always computed — used as target in SSQL
+            # and as the training loss in FP mode)
+            z1_fp = projector(backbone(x1))
+            z2_fp = projector(backbone(x2))
+            p1_fp = predictor(z1_fp)
+            p2_fp = predictor(z2_fp)
 
-        if mode == "fp":
-            loss = (
-                negative_cosine_similarity(p1_fp, z2_fp.detach())
-                + negative_cosine_similarity(p2_fp, z1_fp.detach())
-            )
-
-        else:  # ssql
-            w_bits, a_bits = sample_bits(w_bits_range, a_bits_range)
-            with quantized_forward([backbone, projector], w_bits, a_bits):
-                z1_q = projector(backbone(x1))
-                z2_q = projector(backbone(x2))
-            # Predictor is always full precision
-            p1_q = predictor(z1_q)
-            p2_q = predictor(z2_q)
-
-            L_ssql = (
-                negative_cosine_similarity(p1_q, z2_fp.detach())
-                + negative_cosine_similarity(p2_q, z1_fp.detach())
-            )
-            if use_aux_loss:
-                L_fp = (
+            if mode == "fp":
+                loss = (
                     negative_cosine_similarity(p1_fp, z2_fp.detach())
                     + negative_cosine_similarity(p2_fp, z1_fp.detach())
                 )
-                loss = L_ssql + L_fp
-            else:
-                loss = L_ssql
+
+            else:  # ssql
+                w_bits, a_bits = sample_bits(w_bits_range, a_bits_range)
+                with quantized_forward([backbone, projector], w_bits, a_bits):
+                    z1_q = projector(backbone(x1))
+                    z2_q = projector(backbone(x2))
+                # Predictor is always full precision
+                p1_q = predictor(z1_q)
+                p2_q = predictor(z2_q)
+
+                L_ssql = (
+                    negative_cosine_similarity(p1_q, z2_fp.detach())
+                    + negative_cosine_similarity(p2_q, z1_fp.detach())
+                )
+                if use_aux_loss:
+                    L_fp = (
+                        negative_cosine_similarity(p1_fp, z2_fp.detach())
+                        + negative_cosine_similarity(p2_fp, z1_fp.detach())
+                    )
+                    loss = L_ssql + L_fp
+                else:
+                    loss = L_ssql
 
         optimizer.zero_grad()
         loss.backward()
@@ -160,6 +206,8 @@ def train(
 ):
     mode        = config["mode"]               # 'fp' or 'ssql'
     use_aux     = config.get("use_aux_loss", True)
+    use_amp     = config["training"].get("use_amp", False)
+    use_flash   = config["training"].get("use_flash", False)
     epochs      = config["training"]["epochs"]
     output_dir  = Path(config["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -208,6 +256,11 @@ def train(
             for _ in range(start_epoch):
                 scheduler.step()
 
+    if use_flash:
+        patch_flash_attention(backbone)
+    if use_amp:
+        print(f"[trainer] mixed precision enabled (bfloat16 autocast)")
+
     backbone.to(device)
     projector.to(device)
     predictor.to(device)
@@ -223,7 +276,7 @@ def train(
 
         avg_loss, backbone_grad = _train_epoch(
             backbone, projector, predictor, train_loader, optimizer,
-            device, mode, use_aux, w_bits_range, a_bits_range,
+            device, mode, use_aux, w_bits_range, a_bits_range, use_amp,
         )
         current_lr = optimizer.param_groups[0]["lr"]
         frozen_str = "  [backbone frozen]" if epoch < freeze_epochs else ""

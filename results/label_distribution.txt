@@ -1,0 +1,71 @@
+Label distribution — Merlin scans on disk
+==========================================
+Source : zero_shot_findings_disease_cls.csv filtered by merlin_keep_list.txt
+Scans on disk   : 5097
+Scans with labels: 5042  (55 on disk have no label entry)
+Conditions      : 30
+No NaN values   : every matched scan has a 0 or 1 for every condition
+
+
+★ OUR 6 CONDITIONS (sorted by labeled count)
+─────────────────────────────────────────────────────────────────────────────
+Condition                          pos    neg   labeled   prev
+─────────────────────────────────────────────────────────────────────────────
+★ atelectasis                      909   1034      1943   46.8%
+★ pleural_effusion                 810    531      1341   60.4%
+★ renal_cyst                       551   1469      2020   27.3%
+★ surgically_absent_gallbladder    820   2279      3099   26.5%
+★ gallstones                       166    211       377   44.0%
+★ cardiomegaly                     120    273       393   30.5%
+
+Key issue: cardiomegaly and gallstones have only 377–393 labeled scans
+out of 5042. With n_train=300 (random sample), expected positives:
+  cardiomegaly  ~7   ← essentially no signal
+  gallstones    ~10  ← essentially no signal
+  renal_cyst    ~33  ← marginal
+  atelectasis   ~54  ← usable but limited
+
+With n_train=3000, expected positives:
+  cardiomegaly  ~71  ← minimum viable
+  gallstones    ~99  ← minimum viable
+  renal_cyst   ~328
+  atelectasis  ~541
+
+
+ALL 30 CONDITIONS (sorted by labeled count)
+─────────────────────────────────────────────────────────────────────────────
+Condition                          pos    neg   labeled   prev   note
+─────────────────────────────────────────────────────────────────────────────
+pancreatic_atrophy                 144   3270      3414    4.2%
+splenomegaly                       125   3289      3414    3.7%
+surgically_absent_gallbladder ★    820   2279      3099   26.5%
+anasarca                           348   2038      2386   14.6%
+hiatal_hernia                      305   1878      2183   14.0%
+hydronephrosis                      72   1996      2068    3.5%
+renal_cyst                    ★    551   1469      2020   27.3%
+atelectasis                   ★    909   1034      1943   46.8%
+renal_hypodensities                112   1405      1517    7.4%
+bowel_obstruction                   71   1415      1486    4.8%
+prostatomegaly                     112   1260      1372    8.2%
+pleural_effusion              ★    810    531      1341   60.4%
+hepatomegaly                        59   1226      1285    4.6%
+osteopenia                         112   1125      1237    9.1%
+free_air                            31    919       950    3.3%
+atherosclerosis                    803     54       857   93.7%  (a)
+ascites                            365    166       531   68.7%
+coronary_calcification              52    360       412   12.6%
+cardiomegaly                  ★    120    273       393   30.5%
+gallstones                    ★    166    211       377   44.0%
+fracture                           147    199       346   42.5%
+hepatic_steatosis                  265     37       302   87.7%  (a)
+submucosal_edema                   125    137       262   47.7%
+lymphadenopathy                     38    212       250   15.2%
+biliary_ductal_dilation             45    199       244   18.4%
+metastatic_disease                  20    108       128   15.6%
+aortic_valve_calcification          67     53       120   55.8%
+abdominal_aortic_aneurysm           23     81       104   22.1%
+thrombosis                          82     14        96   85.4%  (a)
+appendicitis                        37     48        85   43.5%
+
+(a) Severely skewed (>85% positive among labeled) — AUROC near 1.0
+    for a trivial classifier; not useful as an evaluation target.
